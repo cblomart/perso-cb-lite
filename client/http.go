@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -29,8 +30,9 @@ func (c *CoinbaseClient) makeRequest(ctx context.Context, method, endpoint strin
 
 	// Prepare request body
 	var bodyReader io.Reader
+	var bodyBytes []byte
 	if body != nil {
-		bodyBytes, err := json.Marshal(body)
+		bodyBytes, err = json.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal request body: %w", err)
 		}
@@ -51,6 +53,30 @@ func (c *CoinbaseClient) makeRequest(ctx context.Context, method, endpoint strin
 		req.Header.Set("Content-Type", "application/json")
 	}
 
+	// Debug: Log request details
+	if os.Getenv("LOG_LEVEL") == "DEBUG" {
+		c.logger.Printf("=== REQUEST DUMP ===")
+		c.logger.Printf("Method: %s", method)
+		c.logger.Printf("URL: %s", url)
+		c.logger.Printf("Headers:")
+		for key, values := range req.Header {
+			for _, value := range values {
+				if key == "Authorization" {
+					c.logger.Printf("  %s: Bearer [JWT_TOKEN]")
+				} else {
+					c.logger.Printf("  %s: %s", key, value)
+				}
+			}
+		}
+		if body != nil {
+			bodyPretty, _ := json.MarshalIndent(body, "", "  ")
+			c.logger.Printf("Body: %s", string(bodyPretty))
+		} else {
+			c.logger.Printf("Body: <empty>")
+		}
+		c.logger.Printf("==================")
+	}
+
 	// Make request
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -62,6 +88,31 @@ func (c *CoinbaseClient) makeRequest(ctx context.Context, method, endpoint strin
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Debug: Log response details
+	if os.Getenv("LOG_LEVEL") == "DEBUG" {
+		c.logger.Printf("=== RESPONSE DUMP ===")
+		c.logger.Printf("Status: %s", resp.Status)
+		c.logger.Printf("Headers:")
+		for key, values := range resp.Header {
+			for _, value := range values {
+				c.logger.Printf("  %s: %s", key, value)
+			}
+		}
+		if len(respBody) > 0 {
+			// Try to pretty print JSON, fallback to raw if not JSON
+			var prettyJSON interface{}
+			if json.Unmarshal(respBody, &prettyJSON) == nil {
+				bodyPretty, _ := json.MarshalIndent(prettyJSON, "", "  ")
+				c.logger.Printf("Body: %s", string(bodyPretty))
+			} else {
+				c.logger.Printf("Body: %s", string(respBody))
+			}
+		} else {
+			c.logger.Printf("Body: <empty>")
+		}
+		c.logger.Printf("===================")
 	}
 
 	// Check status code
