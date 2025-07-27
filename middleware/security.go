@@ -63,7 +63,6 @@ func LoadSecurityConfig() *SecurityConfig {
 		// Auto-generate if not provided
 		config.AccessKey = uuid.New().String()
 		fmt.Printf("🔐 Auto-generated API Access Key: %s\n", config.AccessKey)
-		fmt.Printf("🔐 Use this key in your API calls: X-API-Key: %s\n", config.AccessKey)
 		fmt.Printf("⚠️  WARNING: This key will change on container restart! Add to .env: API_ACCESS_KEY=%s\n", config.AccessKey)
 	}
 

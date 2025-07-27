@@ -60,12 +60,10 @@ func main() {
 		// Only show the access key if it was auto-generated (not set in env)
 		if os.Getenv("API_ACCESS_KEY") == "" {
 			log.Printf("   - API Access Key: %s", securityConfig.GetAccessKey())
-			log.Printf("   - Use header: X-API-Key: %s", securityConfig.GetAccessKey())
-			log.Printf("   - Or query param: ?api_key=%s", securityConfig.GetAccessKey())
+			log.Printf("   - Usage: X-API-Key header or ?api_key query param")
 		} else {
 			log.Printf("   - API Access Key: [SET VIA ENV]")
-			log.Printf("   - Use header: X-API-Key: [YOUR_ACCESS_KEY]")
-			log.Printf("   - Or query param: ?api_key=[YOUR_ACCESS_KEY]")
+			log.Printf("   - Usage: X-API-Key header or ?api_key query param")
 		}
 	}
 
