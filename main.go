@@ -116,9 +116,8 @@ func main() {
 	// API routes
 	api := router.Group("/api/v1")
 	{
-		// Account and positions
+		// Account operations
 		api.GET("/accounts", handlers.GetAccounts)
-		api.GET("/positions", handlers.GetPositions)
 
 		// Trading operations (with integrated stop limit)
 		api.POST("/buy", handlers.BuyBTC)
@@ -127,6 +126,7 @@ func main() {
 		// Order management
 		api.GET("/orders", handlers.GetOrders)
 		api.DELETE("/orders/:order_id", handlers.CancelOrder)
+		api.DELETE("/orders", handlers.CancelAllOrders)
 	}
 
 	// Simple ping for basic server status
@@ -222,6 +222,7 @@ func main() {
 	log.Printf("   - Orders: GET http://localhost:%s/api/v1/orders", port)
 	log.Printf("   - Buy: POST http://localhost:%s/api/v1/buy", port)
 	log.Printf("   - Sell: POST http://localhost:%s/api/v1/sell", port)
+	log.Printf("   - Cancel all: DELETE http://localhost:%s/api/v1/orders", port)
 
 	if err := router.Run(":" + port); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

@@ -36,23 +36,6 @@ func (h *Handlers) GetAccounts(c *gin.Context) {
 	})
 }
 
-// GetPositions returns current positions (accounts with non-zero balances)
-func (h *Handlers) GetPositions(c *gin.Context) {
-	positions, err := h.client.GetPositions()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to fetch positions",
-			"message": err.Error(),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"positions": positions,
-		"count":     len(positions),
-	})
-}
-
 // BuyBTC places a buy order for BTC with USDC, optionally with stop loss protection
 func (h *Handlers) BuyBTC(c *gin.Context) {
 	var req client.TradingRequest
@@ -268,4 +251,60 @@ func (h *Handlers) CancelOrder(c *gin.Context) {
 		"message":  "Order cancelled successfully",
 		"order_id": orderID,
 	})
+}
+
+// CancelAllOrders cancels all open orders
+func (h *Handlers) CancelAllOrders(c *gin.Context) {
+	// Get all orders first
+	orders, err := h.client.GetOrders()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to fetch orders",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// Filter for open orders
+	var openOrders []client.Order
+	for _, order := range orders {
+		if order.Status == "OPEN" || order.Status == "PENDING" {
+			openOrders = append(openOrders, order)
+		}
+	}
+
+	if len(openOrders) == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"message":         "No open orders to cancel",
+			"cancelled_count": 0,
+		})
+		return
+	}
+
+	// Cancel each open order
+	var cancelledOrders []string
+	var failedOrders []string
+
+	for _, order := range openOrders {
+		err := h.client.CancelOrder(order.ID)
+		if err != nil {
+			failedOrders = append(failedOrders, order.ID)
+		} else {
+			cancelledOrders = append(cancelledOrders, order.ID)
+		}
+	}
+
+	response := gin.H{
+		"message":          "Cancel all orders completed",
+		"cancelled_count":  len(cancelledOrders),
+		"failed_count":     len(failedOrders),
+		"cancelled_orders": cancelledOrders,
+	}
+
+	if len(failedOrders) > 0 {
+		response["failed_orders"] = failedOrders
+		c.JSON(http.StatusPartialContent, response)
+	} else {
+		c.JSON(http.StatusOK, response)
+	}
 }

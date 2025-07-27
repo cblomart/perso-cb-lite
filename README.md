@@ -5,8 +5,8 @@ A simple Go API for trading cryptocurrencies on Coinbase.
 ## What it does
 
 - Buy and sell crypto with automatic stop-loss protection
-- Check your account balance and positions
-- View and cancel orders
+- Check your account balance
+- View and cancel orders (individual or all)
 - Secure API with rate limiting
 
 ## Quick Start
@@ -77,6 +77,10 @@ curl -X POST http://localhost:8080/api/v1/buy \
     "stop_price": "43000.00",
     "limit_price": "42900.00"
   }'
+
+# Cancel all open orders
+curl -X DELETE http://localhost:8080/api/v1/orders \
+  -H "X-API-Key: YOUR_ACCESS_KEY"
 ```
 
 ## Configuration
