@@ -19,6 +19,7 @@ A simple Go API for trading cryptocurrencies on Coinbase.
 
 ### 2. Run with Docker (Easiest)
 
+#### Option A: Build from source
 ```bash
 # Clone and setup
 git clone <repository-url>
@@ -29,9 +30,19 @@ cp env.example .env
 # COINBASE_API_KEY=your_api_key_id
 # COINBASE_API_SECRET=your_private_key
 
-# Run
+# Build and run
 docker build -t perso-cb-lite .
 docker run -d --name perso-cb-lite -p 8080:8080 --env-file .env perso-cb-lite
+```
+
+#### Option B: Use pre-built image from GitHub Container Registry
+```bash
+# Pull and run the latest version
+docker pull ghcr.io/cblomart/perso-cb-lite:latest
+docker run -d --name perso-cb-lite -p 8080:8080 \
+  -e COINBASE_API_KEY=your_api_key_id \
+  -e COINBASE_API_SECRET=your_private_key \
+  ghcr.io/cblomart/perso-cb-lite:latest
 ```
 
 ### 3. Test it works
@@ -106,6 +117,96 @@ TRADING_QUOTE_CURRENCY=USD
 | `PORT` | No | 8080 | Server port |
 | `ENVIRONMENT` | No | development | Environment (development/production) |
 | `LOG_LEVEL` | No | auto | Log level (auto: WARN in prod, INFO in dev) |
+
+## Docker Deployment
+
+### Available Tags
+
+| Tag | Description | Example |
+|-----|-------------|---------|
+| `latest` | Latest stable build from main branch | `ghcr.io/cblomart/perso-cb-lite:latest` |
+| `main` | Latest build from main branch (same as latest) | `ghcr.io/cblomart/perso-cb-lite:main` |
+| `v1.0.0` | Specific version (semantic versioning) | `ghcr.io/cblomart/perso-cb-lite:v1.0.0` |
+| `v1.0` | Latest patch version of 1.0.x | `ghcr.io/cblomart/perso-cb-lite:v1.0` |
+| `abc1234` | Specific commit SHA | `ghcr.io/cblomart/perso-cb-lite:abc1234` |
+
+### Tag Differences
+
+- **`latest`**: Always points to the most recent main branch build (recommended for development)
+- **`main`**: Same as latest - most recent main branch build
+- **`v1.0.0`**: Fixed version, won't change (recommended for production)
+- **`v1.0`**: Latest patch updates within 1.0.x series
+- **Commit SHA**: Exact build from specific commit
+
+### Production Deployment
+
+```bash
+# Use specific version for production (recommended)
+docker run -d --name perso-cb-lite \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -e COINBASE_API_KEY=your_api_key_id \
+  -e COINBASE_API_SECRET=your_private_key \
+  -e ENVIRONMENT=production \
+  -e LOG_LEVEL=WARN \
+  ghcr.io/cblomart/perso-cb-lite:v1.0.0
+```
+
+### Development Deployment
+
+```bash
+# Use latest for development/testing
+docker run -d --name perso-cb-lite-dev \
+  -p 8081:8080 \
+  -e COINBASE_API_KEY=your_api_key_id \
+  -e COINBASE_API_SECRET=your_private_key \
+  -e ENVIRONMENT=development \
+  -e LOG_LEVEL=INFO \
+  ghcr.io/cblomart/perso-cb-lite:latest
+```
+
+### Using Environment File
+
+```bash
+# Create .env file with your credentials
+echo "COINBASE_API_KEY=your_api_key_id" > .env
+echo "COINBASE_API_SECRET=your_private_key" >> .env
+echo "ENVIRONMENT=production" >> .env
+
+# Run with environment file
+docker run -d --name perso-cb-lite \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  --env-file .env \
+  ghcr.io/cblomart/perso-cb-lite:latest
+```
+
+### Docker Compose
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+services:
+  perso-cb-lite:
+    image: ghcr.io/cblomart/perso-cb-lite:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - COINBASE_API_KEY=${COINBASE_API_KEY}
+      - COINBASE_API_SECRET=${COINBASE_API_SECRET}
+      - ENVIRONMENT=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 120s
+      timeout: 30s
+      retries: 3
+```
+
+```bash
+# Run with Docker Compose
+docker-compose up -d
+```
 
 ## Local Development
 
