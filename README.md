@@ -7,6 +7,7 @@ A simple Go API for trading cryptocurrencies on Coinbase.
 - Buy and sell crypto with automatic stop-loss protection
 - Check your account balance
 - View and cancel orders (individual or all)
+- Automatic balance validation before placing orders
 - Secure API with rate limiting
 
 ## Quick Start

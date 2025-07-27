@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -23,9 +25,10 @@ type CoinbaseOrder struct {
 			LimitPrice string `json:"limit_price"`
 		} `json:"limit_limit_gtc,omitempty"`
 		StopLimitStopLimitGtc *struct {
-			BaseSize   string `json:"base_size"`
-			LimitPrice string `json:"limit_price"`
-			StopPrice  string `json:"stop_price"`
+			BaseSize      string `json:"base_size"`
+			LimitPrice    string `json:"limit_price"`
+			StopPrice     string `json:"stop_price"`
+			StopDirection string `json:"stop_direction"`
 		} `json:"stop_limit_stop_limit_gtc,omitempty"`
 	} `json:"order_configuration"`
 }
@@ -40,9 +43,10 @@ type CoinbaseCreateOrderRequest struct {
 			LimitPrice string `json:"limit_price"`
 		} `json:"limit_limit_gtc,omitempty"`
 		StopLimitStopLimitGtc *struct {
-			BaseSize   string `json:"base_size"`
-			LimitPrice string `json:"limit_price"`
-			StopPrice  string `json:"stop_price"`
+			BaseSize      string `json:"base_size"`
+			LimitPrice    string `json:"limit_price"`
+			StopPrice     string `json:"stop_price"`
+			StopDirection string `json:"stop_direction"`
 		} `json:"stop_limit_stop_limit_gtc,omitempty"`
 	} `json:"order_configuration"`
 }
@@ -57,12 +61,60 @@ type OrdersResponse struct {
 	Orders []CoinbaseOrder `json:"orders"`
 }
 
+// checkBalance validates if there are sufficient funds for the order
+func (c *CoinbaseClient) checkBalance(side, size, price string) error {
+	accounts, err := c.GetAccounts()
+	if err != nil {
+		c.logger.Printf("Warning: Could not check balance: %v", err)
+		return nil // Don't fail the order if we can't check balance
+	}
+
+	// Calculate required amount
+	var requiredAmount float64
+	var requiredCurrency string
+
+	if side == "BUY" {
+		// For BUY orders, we need quote currency (e.g., USDC)
+		sizeFloat, _ := strconv.ParseFloat(size, 64)
+		priceFloat, _ := strconv.ParseFloat(price, 64)
+		requiredAmount = sizeFloat * priceFloat
+		requiredCurrency = strings.Split(c.tradingPair, "-")[1] // Quote currency
+	} else {
+		// For SELL orders, we need base currency (e.g., BTC)
+		sizeFloat, _ := strconv.ParseFloat(size, 64)
+		requiredAmount = sizeFloat
+		requiredCurrency = strings.Split(c.tradingPair, "-")[0] // Base currency
+	}
+
+	// Find the required currency account
+	for _, account := range accounts {
+		if account.Currency == requiredCurrency {
+			availableBalance, _ := strconv.ParseFloat(account.AvailableBalance, 64)
+			if availableBalance < requiredAmount {
+				return fmt.Errorf("insufficient %s balance: need %.8f, have %.8f",
+					requiredCurrency, requiredAmount, availableBalance)
+			}
+			c.logger.Printf("Balance check passed: %.8f %s available for %s order",
+				availableBalance, requiredCurrency, side)
+			return nil
+		}
+	}
+
+	c.logger.Printf("Warning: Could not find %s account for balance check", requiredCurrency)
+	return nil // Don't fail if we can't find the account
+}
+
 // createOrder is a helper function to create orders with common logic
 func (c *CoinbaseClient) createOrder(side, size, price, stopPrice, limitPrice string) (*Order, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	c.logger.Printf("Placing %s order: size=%s, price=%s", side, size, price)
+
+	// Check balance before placing order
+	if err := c.checkBalance(side, size, price); err != nil {
+		return nil, fmt.Errorf("balance check failed: %w", err)
+	}
 
 	orderReq := CoinbaseCreateOrderRequest{
 		ProductID: c.tradingPair,
@@ -72,14 +124,23 @@ func (c *CoinbaseClient) createOrder(side, size, price, stopPrice, limitPrice st
 	// Configure order type
 	if stopPrice != "" && limitPrice != "" {
 		c.logger.Printf("Creating stop limit order: stop=%s, limit=%s", stopPrice, limitPrice)
+
+		// Determine stop direction based on order side
+		stopDirection := "STOP_DIRECTION_STOP_DOWN" // Default for SELL
+		if side == "BUY" {
+			stopDirection = "STOP_DIRECTION_STOP_UP"
+		}
+
 		orderReq.OrderConfiguration.StopLimitStopLimitGtc = &struct {
-			BaseSize   string `json:"base_size"`
-			LimitPrice string `json:"limit_price"`
-			StopPrice  string `json:"stop_price"`
+			BaseSize      string `json:"base_size"`
+			LimitPrice    string `json:"limit_price"`
+			StopPrice     string `json:"stop_price"`
+			StopDirection string `json:"stop_direction"`
 		}{
-			BaseSize:   size,
-			LimitPrice: limitPrice,
-			StopPrice:  stopPrice,
+			BaseSize:      size,
+			LimitPrice:    limitPrice,
+			StopPrice:     stopPrice,
+			StopDirection: stopDirection,
 		}
 	} else {
 		orderReq.OrderConfiguration.LimitLimitGtc = &struct {
