@@ -120,7 +120,7 @@ TRADING_QUOTE_CURRENCY=USD
 | `ALLOWED_IPS` | No | - | Comma-separated list of allowed IPs/subnets |
 | `PORT` | No | 8080 | Server port |
 | `ENVIRONMENT` | No | development | Environment (development/production) |
-| `LOG_LEVEL` | No | auto | Log level (auto: WARN in prod, INFO in dev) |
+| `LOG_LEVEL` | No | auto | Log level (DEBUG/INFO/WARN/ERROR, auto: WARN in prod, INFO in dev) |
 
 ## Docker Deployment
 

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"os"
 	"time"
 )
 
@@ -103,11 +104,14 @@ func (c *CoinbaseClient) createJWT(method, endpoint string) (string, error) {
 
 	jwt := payload + "." + signatureB64
 
-	// Debug output
-	headerPretty, _ := json.MarshalIndent(header, "", "  ")
-	claimsPretty, _ := json.MarshalIndent(claims, "", "  ")
-	c.logger.Printf("JWT Header: %s", string(headerPretty))
-	c.logger.Printf("JWT Claims: %s", string(claimsPretty))
+	// Debug output (only in DEBUG log level)
+	logLevel := os.Getenv("LOG_LEVEL")
+	if logLevel == "DEBUG" {
+		headerPretty, _ := json.MarshalIndent(header, "", "  ")
+		claimsPretty, _ := json.MarshalIndent(claims, "", "  ")
+		c.logger.Printf("JWT Header: %s", string(headerPretty))
+		c.logger.Printf("JWT Claims: %s", string(claimsPretty))
+	}
 
 	return jwt, nil
 }
