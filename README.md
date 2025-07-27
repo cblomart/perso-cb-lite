@@ -7,6 +7,8 @@ A simple Go API for trading cryptocurrencies on Coinbase.
 - Buy and sell crypto with automatic stop-loss protection
 - Check your account balance
 - View and cancel orders (individual or all)
+- Get market data (candles) for technical analysis
+- View current market state (bid/ask, spread, order book)
 - Automatic balance validation before placing orders
 - Secure API with rate limiting
 
@@ -61,6 +63,23 @@ docker logs perso-cb-lite | grep "Access Key"
 ```bash
 # Check accounts (use your access key from logs)
 curl -H "X-API-Key: YOUR_ACCESS_KEY" http://localhost:8080/api/v1/accounts
+
+# Get current market state (bid/ask, spread, order book)
+curl -H "X-API-Key: YOUR_ACCESS_KEY" http://localhost:8080/api/v1/market
+
+# Get market state with custom depth (20 levels)
+curl -H "X-API-Key: YOUR_ACCESS_KEY" "http://localhost:8080/api/v1/market?depth=20"
+
+# Custom time range with specific granularity
+curl -H "X-API-Key: YOUR_ACCESS_KEY" \
+  "http://localhost:8080/api/v1/candles?start=1639508050&end=1639594450&granularity=ONE_HOUR"
+
+# Preset periods (convenient shortcuts)
+curl -H "X-API-Key: YOUR_ACCESS_KEY" "http://localhost:8080/api/v1/candles?period=last_year"   # Daily candles
+curl -H "X-API-Key: YOUR_ACCESS_KEY" "http://localhost:8080/api/v1/candles?period=last_month"   # Hourly candles  
+curl -H "X-API-Key: YOUR_ACCESS_KEY" "http://localhost:8080/api/v1/candles?period=last_week"    # 6-hour candles
+curl -H "X-API-Key: YOUR_ACCESS_KEY" "http://localhost:8080/api/v1/candles?period=last_day"     # 15-minute candles
+curl -H "X-API-Key: YOUR_ACCESS_KEY" "http://localhost:8080/api/v1/candles?period=last_hour"    # 1-minute candles
 
 # Buy 0.001 BTC at $45,000
 curl -X POST http://localhost:8080/api/v1/buy \

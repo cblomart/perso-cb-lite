@@ -119,6 +119,10 @@ func main() {
 		// Account operations
 		api.GET("/accounts", handlers.GetAccounts)
 
+		// Market data
+		api.GET("/candles", handlers.GetCandles)
+		api.GET("/market", handlers.GetMarketState)
+
 		// Trading operations (with integrated stop limit)
 		api.POST("/buy", handlers.BuyBTC)
 		api.POST("/sell", handlers.SellBTC)

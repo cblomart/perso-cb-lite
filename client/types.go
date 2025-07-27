@@ -45,3 +45,43 @@ type CreateOrderRequest struct {
 	StopPrice  string `json:"stop_price,omitempty"`
 	LimitPrice string `json:"limit_price,omitempty"`
 }
+
+// Candle represents a single candle from the Coinbase API
+type Candle struct {
+	Start  string `json:"start"`
+	Low    string `json:"low"`
+	High   string `json:"high"`
+	Open   string `json:"open"`
+	Close  string `json:"close"`
+	Volume string `json:"volume"`
+}
+
+// CandlesResponse represents the response from the candles endpoint
+type CandlesResponse struct {
+	Candles []Candle `json:"candles"`
+}
+
+// OrderBookEntry represents a single entry in the order book
+type OrderBookEntry struct {
+	Price string `json:"price"`
+	Size  string `json:"size"`
+}
+
+// OrderBook represents the order book response from Coinbase API
+type OrderBook struct {
+	Bids []OrderBookEntry `json:"bids"`
+	Asks []OrderBookEntry `json:"asks"`
+}
+
+// MarketState represents current market information
+type MarketState struct {
+	ProductID     string    `json:"product_id"`
+	BestBid       string    `json:"best_bid"`
+	BestAsk       string    `json:"best_ask"`
+	Spread        string    `json:"spread"`
+	SpreadPercent string    `json:"spread_percent"`
+	LastPrice     string    `json:"last_price"`
+	Volume24h     string    `json:"volume_24h"`
+	OrderBook     OrderBook `json:"order_book"`
+	Timestamp     int64     `json:"timestamp"`
+}

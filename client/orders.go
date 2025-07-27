@@ -290,3 +290,127 @@ func (c *CoinbaseClient) CancelOrder(orderID string) error {
 	c.logger.Printf("Successfully cancelled order: %s", orderID)
 	return nil
 }
+
+// GetCandles retrieves candle data for the configured trading pair
+func (c *CoinbaseClient) GetCandles(start, end, granularity string, limit int) ([]Candle, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	c.logger.Printf("Fetching candles for %s: start=%s, end=%s, granularity=%s", c.tradingPair, start, end, granularity)
+
+	// Build query parameters
+	params := fmt.Sprintf("?start=%s&end=%s&granularity=%s", start, end, granularity)
+	if limit > 0 {
+		params += fmt.Sprintf("&limit=%d", limit)
+	}
+
+	endpoint := fmt.Sprintf("/products/%s/candles%s", c.tradingPair, params)
+
+	respBody, err := c.makeRequest(ctx, "GET", endpoint, nil)
+	if err != nil {
+		c.logger.Printf("Error fetching candles: %v", err)
+		return nil, fmt.Errorf("failed to fetch candles: %w", err)
+	}
+
+	var resp CandlesResponse
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal candles response: %w", err)
+	}
+
+	c.logger.Printf("Successfully fetched %d candles", len(resp.Candles))
+	return resp.Candles, nil
+}
+
+// GetOrderBook retrieves the order book for the configured trading pair
+func (c *CoinbaseClient) GetOrderBook(level int) (*OrderBook, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	c.logger.Printf("Fetching order book for %s (level %d)...", c.tradingPair, level)
+
+	endpoint := fmt.Sprintf("/products/%s/book?level=%d", c.tradingPair, level)
+
+	respBody, err := c.makeRequest(ctx, "GET", endpoint, nil)
+	if err != nil {
+		c.logger.Printf("Error fetching order book: %v", err)
+		return nil, fmt.Errorf("failed to fetch order book: %w", err)
+	}
+
+	var orderBook OrderBook
+	if err := json.Unmarshal(respBody, &orderBook); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal order book response: %w", err)
+	}
+
+	c.logger.Printf("Successfully fetched order book with %d bids and %d asks", len(orderBook.Bids), len(orderBook.Asks))
+	return &orderBook, nil
+}
+
+// GetMarketState retrieves comprehensive market state information
+func (c *CoinbaseClient) GetMarketState(depth int) (*MarketState, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	c.logger.Printf("Fetching market state for %s (depth %d)...", c.tradingPair, depth)
+
+	// Get order book
+	orderBook, err := c.GetOrderBook(depth)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get order book: %w", err)
+	}
+
+	// Get product information for last price and volume
+	productEndpoint := fmt.Sprintf("/products/%s", c.tradingPair)
+	respBody, err := c.makeRequest(ctx, "GET", productEndpoint, nil)
+	if err != nil {
+		c.logger.Printf("Error fetching product info: %v", err)
+		return nil, fmt.Errorf("failed to fetch product info: %w", err)
+	}
+
+	var productInfo struct {
+		ProductID string `json:"product_id"`
+		LastPrice string `json:"last_price"`
+		Volume24h string `json:"volume_24h"`
+	}
+
+	if err := json.Unmarshal(respBody, &productInfo); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal product info: %w", err)
+	}
+
+	// Calculate best bid and ask
+	var bestBid, bestAsk string
+	if len(orderBook.Bids) > 0 {
+		bestBid = orderBook.Bids[0].Price
+	}
+	if len(orderBook.Asks) > 0 {
+		bestAsk = orderBook.Asks[0].Price
+	}
+
+	// Calculate spread
+	var spread, spreadPercent string
+	if bestBid != "" && bestAsk != "" {
+		bidFloat, _ := strconv.ParseFloat(bestBid, 64)
+		askFloat, _ := strconv.ParseFloat(bestAsk, 64)
+		spreadValue := askFloat - bidFloat
+		spreadPercentValue := (spreadValue / bidFloat) * 100
+
+		spread = fmt.Sprintf("%.8f", spreadValue)
+		spreadPercent = fmt.Sprintf("%.4f", spreadPercentValue)
+	}
+
+	marketState := &MarketState{
+		ProductID:     c.tradingPair,
+		BestBid:       bestBid,
+		BestAsk:       bestAsk,
+		Spread:        spread,
+		SpreadPercent: spreadPercent,
+		LastPrice:     productInfo.LastPrice,
+		Volume24h:     productInfo.Volume24h,
+		OrderBook:     *orderBook,
+		Timestamp:     time.Now().Unix(),
+	}
+
+	c.logger.Printf("Market state: Bid=%s, Ask=%s, Spread=%s (%s%%)",
+		bestBid, bestAsk, spread, spreadPercent)
+
+	return marketState, nil
+}

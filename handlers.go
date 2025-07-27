@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"coinbase-base/client"
 
@@ -306,5 +308,165 @@ func (h *Handlers) CancelAllOrders(c *gin.Context) {
 		c.JSON(http.StatusPartialContent, response)
 	} else {
 		c.JSON(http.StatusOK, response)
+	}
+}
+
+// GetCandles retrieves candle data for the configured trading pair
+func (h *Handlers) GetCandles(c *gin.Context) {
+	// Get query parameters
+	start := c.Query("start")
+	end := c.Query("end")
+	granularity := c.Query("granularity")
+	limitStr := c.Query("limit")
+	period := c.Query("period")
+
+	// Handle preset periods
+	if period != "" {
+		start, end, granularity = h.getPresetPeriod(period)
+		if start == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Invalid period",
+				"message": "Period must be one of: last_hour, last_day, last_week, last_month, last_year",
+			})
+			return
+		}
+	}
+
+	// Validate required parameters
+	if start == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Missing start parameter",
+			"message": "Start timestamp is required (or use period parameter)",
+		})
+		return
+	}
+
+	if end == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Missing end parameter",
+			"message": "End timestamp is required (or use period parameter)",
+		})
+		return
+	}
+
+	if granularity == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Missing granularity parameter",
+			"message": "Granularity is required (or use period parameter)",
+		})
+		return
+	}
+
+	// Parse limit parameter
+	limit := 0
+	if limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil {
+			limit = parsedLimit
+		}
+	}
+
+	// Validate granularity
+	validGranularities := map[string]bool{
+		"UNKNOWN_GRANULARITY": true,
+		"ONE_MINUTE":          true,
+		"FIVE_MINUTE":         true,
+		"FIFTEEN_MINUTE":      true,
+		"THIRTY_MINUTE":       true,
+		"ONE_HOUR":            true,
+		"TWO_HOUR":            true,
+		"SIX_HOUR":            true,
+		"ONE_DAY":             true,
+	}
+
+	if !validGranularities[granularity] {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Invalid granularity",
+			"message": "Granularity must be one of: UNKNOWN_GRANULARITY, ONE_MINUTE, FIVE_MINUTE, FIFTEEN_MINUTE, THIRTY_MINUTE, ONE_HOUR, TWO_HOUR, SIX_HOUR, ONE_DAY",
+		})
+		return
+	}
+
+	candles, err := h.client.GetCandles(start, end, granularity, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to fetch candles",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	response := gin.H{
+		"product_id":  h.client.GetTradingPair(),
+		"start":       start,
+		"end":         end,
+		"granularity": granularity,
+		"candles":     candles,
+	}
+
+	if period != "" {
+		response["period"] = period
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// GetMarketState retrieves current market state with bid/ask and order book
+func (h *Handlers) GetMarketState(c *gin.Context) {
+	// Get depth parameter (default to 10 levels)
+	depthStr := c.DefaultQuery("depth", "10")
+	depth, err := strconv.Atoi(depthStr)
+	if err != nil || depth <= 0 || depth > 50 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Invalid depth parameter",
+			"message": "Depth must be a positive integer between 1 and 50",
+		})
+		return
+	}
+
+	marketState, err := h.client.GetMarketState(depth)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to fetch market state",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"product_id":     marketState.ProductID,
+		"best_bid":       marketState.BestBid,
+		"best_ask":       marketState.BestAsk,
+		"spread":         marketState.Spread,
+		"spread_percent": marketState.SpreadPercent,
+		"last_price":     marketState.LastPrice,
+		"volume_24h":     marketState.Volume24h,
+		"order_book":     marketState.OrderBook,
+		"timestamp":      marketState.Timestamp,
+		"depth":          depth,
+	})
+}
+
+// getPresetPeriod returns start, end, and granularity for preset periods
+func (h *Handlers) getPresetPeriod(period string) (string, string, string) {
+	now := time.Now()
+
+	switch period {
+	case "last_hour":
+		start := now.Add(-1 * time.Hour).Unix()
+		return fmt.Sprintf("%d", start), fmt.Sprintf("%d", now.Unix()), "ONE_MINUTE"
+	case "last_day":
+		start := now.AddDate(0, 0, -1).Unix()
+		return fmt.Sprintf("%d", start), fmt.Sprintf("%d", now.Unix()), "FIFTEEN_MINUTE"
+	case "last_week":
+		start := now.AddDate(0, 0, -7).Unix()
+		return fmt.Sprintf("%d", start), fmt.Sprintf("%d", now.Unix()), "SIX_HOUR"
+	case "last_month":
+		start := now.AddDate(0, -1, 0).Unix()
+		return fmt.Sprintf("%d", start), fmt.Sprintf("%d", now.Unix()), "ONE_HOUR"
+	case "last_year":
+		start := now.AddDate(-1, 0, 0).Unix()
+		return fmt.Sprintf("%d", start), fmt.Sprintf("%d", now.Unix()), "ONE_DAY"
+	default:
+		return "", "", ""
 	}
 }

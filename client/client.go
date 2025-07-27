@@ -70,3 +70,8 @@ func NewCoinbaseClient(tradingPair string) (*CoinbaseClient, error) {
 		tradingPair: tradingPair,
 	}, nil
 }
+
+// GetTradingPair returns the configured trading pair
+func (c *CoinbaseClient) GetTradingPair() string {
+	return c.tradingPair
+}
