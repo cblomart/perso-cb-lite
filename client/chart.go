@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"image/color"
+	"image/png"
 	"strconv"
 	"time"
 
@@ -21,10 +22,6 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 	p.Title.Text = fmt.Sprintf("BTC-USDC Trading Chart (%s)", graphData.Period)
 	p.X.Label.Text = "Time"
 	p.Y.Label.Text = "Price (USD)"
-
-	// Set plot size for Telegram (max 10MB, but keep reasonable)
-	p.Width = 12 * vg.Inch
-	p.Height = 8 * vg.Inch
 
 	// Create candlestick data
 	candles := make(plotter.XYs, len(graphData.Candles))
@@ -175,29 +172,17 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 		p.Legend.Add("Account Value", accountLine)
 	}
 
-	// Add summary text
-	summaryText := fmt.Sprintf("Trades: %d | Volume: $%.2f | Change: %.2f%%",
-		graphData.Summary.TotalTrades,
-		graphData.Summary.TotalVolume,
-		graphData.Summary.ValueChangePct)
-
-	// Create a text box for summary
-	textBox := plotter.Text{
-		X:    0.1,
-		Y:    0.9,
-		Text: summaryText,
-		Font: vg.Font{Size: 12},
-	}
-	p.Add(textBox)
-
-	// Create the image
+	// Create the image with specific dimensions
 	img := vgimg.New(12*vg.Inch, 8*vg.Inch)
 	dc := draw.New(img)
 	p.Draw(dc)
 
 	// Convert to PNG bytes
 	var buf bytes.Buffer
-	img.WriteTo(&buf)
+	err = png.Encode(&buf, img.Image())
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode PNG: %w", err)
+	}
 
 	return buf.Bytes(), nil
 }
