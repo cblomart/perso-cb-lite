@@ -138,10 +138,10 @@ func (c *CoinbaseClient) CalculateOrderSizeByPercentage(side string, percentage 
 		adjustedTradeValue := tradeValue - fee
 		orderSize = adjustedTradeValue / priceFloat
 
-		// Log the calculation for transparency (only in debug mode)
+		// Log calculation details in debug mode
 		if os.Getenv("LOG_LEVEL") == "DEBUG" {
 			c.logger.Printf("BUY calculation: %.2f%% requested, base amount: %.8f %s, trade value: %.2f, fee: %.2f, adjusted trade value: %.2f, order size: %.8f BTC",
-				percentage, baseAmount, currency, tradeValue, fee, adjustedTradeValue, orderSize)
+				percentage, availableBalance, currency, tradeValue, fee, adjustedTradeValue, orderSize)
 		}
 	} else {
 		// For SELL orders, calculate the trade value and adjust for fees
@@ -163,10 +163,10 @@ func (c *CoinbaseClient) CalculateOrderSizeByPercentage(side string, percentage 
 		adjustedBTC := baseAmount - (fee / priceFloat)
 		orderSize = adjustedBTC
 
-		// Log the calculation for transparency (only in debug mode)
+		// Log calculation details in debug mode
 		if os.Getenv("LOG_LEVEL") == "DEBUG" {
 			c.logger.Printf("SELL calculation: %.2f%% requested, base amount: %.8f %s, trade value: %.2f, fee: %.2f, adjusted BTC: %.8f, order size: %.8f BTC",
-				percentage, baseAmount, currency, tradeValue, fee, adjustedBTC, orderSize)
+				percentage, availableBalance, currency, tradeValue, fee, adjustedBTC, orderSize)
 		}
 	}
 
@@ -198,21 +198,27 @@ func (c *CoinbaseClient) checkBalance(side, size, price string) error {
 		requiredCurrency = strings.Split(c.tradingPair, "-")[0] // Base currency
 	}
 
-	// Find the required currency account
+	// Find the required account
+	var requiredAccount *Account
 	for _, account := range accounts {
 		if account.Currency == requiredCurrency {
-			availableBalance, _ := strconv.ParseFloat(account.AvailableBalance, 64)
-			if availableBalance < requiredAmount {
-				shortfall := requiredAmount - availableBalance
-				return fmt.Errorf("insufficient %s balance: need %.8f, have %.8f (shortfall: %.8f)",
-					requiredCurrency, requiredAmount, availableBalance, shortfall)
-			}
-			return nil
+			requiredAccount = &account
+			break
 		}
 	}
 
-	c.logger.Printf("Warning: Could not find %s account for balance check", requiredCurrency)
-	return nil // Don't fail if we can't find the account
+	if requiredAccount == nil {
+		c.logger.Printf("Warning: Could not find %s account for balance check", requiredCurrency)
+		return nil
+	}
+
+	availableBalance, _ := strconv.ParseFloat(requiredAccount.AvailableBalance, 64)
+	if availableBalance < requiredAmount {
+		shortfall := requiredAmount - availableBalance
+		return fmt.Errorf("insufficient %s balance: need %.8f, have %.8f (shortfall: %.8f)",
+			requiredCurrency, requiredAmount, availableBalance, shortfall)
+	}
+	return nil
 }
 
 // createOrder is a helper function to create market orders
@@ -220,14 +226,14 @@ func (c *CoinbaseClient) createOrder(side, size string, price float64) (*Order, 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Only log in debug mode for performance
+	// Log order placement in debug mode
 	if os.Getenv("LOG_LEVEL") == "DEBUG" {
 		c.logger.Printf("Placing %s market order: size=%s, price=%.8f", side, size, price)
 	}
 
-	// Check balance before placing order
+	// Check balance if possible
 	if err := c.checkBalance(side, size, fmt.Sprintf("%.8f", price)); err != nil {
-		return nil, fmt.Errorf("balance check failed: %w", err)
+		c.logger.Printf("Warning: Could not check balance: %v", err)
 	}
 
 	// Generate a unique client order ID
@@ -295,7 +301,7 @@ func (c *CoinbaseClient) createOrder(side, size string, price float64) (*Order, 
 		CreatedAt:     time.Now(),
 	}
 
-	// Only log in debug mode for performance
+	// Log successful order creation in debug mode
 	if os.Getenv("LOG_LEVEL") == "DEBUG" {
 		c.logger.Printf("Successfully created %s order: %s", side, order.ID)
 	}
@@ -304,12 +310,24 @@ func (c *CoinbaseClient) createOrder(side, size string, price float64) (*Order, 
 
 // BuyBTC places a buy order for the configured trading pair
 func (c *CoinbaseClient) BuyBTC(size string, price float64) (*Order, error) {
-	return c.createOrder("BUY", size, price)
+	// Create order
+	order, err := c.createOrder("BUY", size, price)
+	if err != nil {
+		c.logger.Printf("Error creating BUY order: %v", err)
+		return nil, fmt.Errorf("failed to create BUY order: %w", err)
+	}
+	return order, nil
 }
 
 // SellBTC places a sell order for the configured trading pair
 func (c *CoinbaseClient) SellBTC(size string, price float64) (*Order, error) {
-	return c.createOrder("SELL", size, price)
+	// Create order
+	order, err := c.createOrder("SELL", size, price)
+	if err != nil {
+		c.logger.Printf("Error creating SELL order: %v", err)
+		return nil, fmt.Errorf("failed to create SELL order: %w", err)
+	}
+	return order, nil
 }
 
 // GetOrders retrieves all orders
@@ -317,7 +335,10 @@ func (c *CoinbaseClient) GetOrders() ([]Order, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	c.logger.Printf("Fetching orders...")
+	// Log order fetching in debug mode
+	if os.Getenv("LOG_LEVEL") == "DEBUG" {
+		c.logger.Printf("Fetching orders...")
+	}
 
 	// Use the correct endpoint from Coinbase API documentation
 	// Filter for open orders only (active orders that can be canceled/modified)
@@ -376,7 +397,7 @@ func (c *CoinbaseClient) GetOrders() ([]Order, error) {
 		})
 	}
 
-	// Only log in debug mode for performance
+	// Log successful order fetch in debug mode
 	if os.Getenv("LOG_LEVEL") == "DEBUG" {
 		c.logger.Printf("Successfully fetched %d orders", len(orders))
 	}
@@ -388,7 +409,10 @@ func (c *CoinbaseClient) CancelOrder(orderID string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	c.logger.Printf("Cancelling order: %s", orderID)
+	// Log order cancellation in debug mode
+	if os.Getenv("LOG_LEVEL") == "DEBUG" {
+		c.logger.Printf("Cancelling order: %s", orderID)
+	}
 
 	cancelReq := struct {
 		OrderIDs []string `json:"order_ids"`
@@ -402,7 +426,10 @@ func (c *CoinbaseClient) CancelOrder(orderID string) error {
 		return fmt.Errorf("failed to cancel order %s: %w", orderID, err)
 	}
 
-	c.logger.Printf("Successfully cancelled order: %s", orderID)
+	// Log successful cancellation in debug mode
+	if os.Getenv("LOG_LEVEL") == "DEBUG" {
+		c.logger.Printf("Successfully cancelled order: %s", orderID)
+	}
 	return nil
 }
 
@@ -411,7 +438,10 @@ func (c *CoinbaseClient) GetCandles(start, end, granularity string, limit int) (
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	c.logger.Printf("Fetching candles for %s: start=%s, end=%s, granularity=%s", c.tradingPair, start, end, granularity)
+	// Log candle fetching in debug mode
+	if os.Getenv("LOG_LEVEL") == "DEBUG" {
+		c.logger.Printf("Fetching candles for %s: start=%s, end=%s, granularity=%s", c.tradingPair, start, end, granularity)
+	}
 
 	// Build query parameters
 	params := fmt.Sprintf("?start=%s&end=%s&granularity=%s", start, end, granularity)
@@ -432,7 +462,7 @@ func (c *CoinbaseClient) GetCandles(start, end, granularity string, limit int) (
 		return nil, fmt.Errorf("failed to unmarshal candles response: %w", err)
 	}
 
-	// Only log in debug mode for performance
+	// Log successful candle fetch in debug mode
 	if os.Getenv("LOG_LEVEL") == "DEBUG" {
 		c.logger.Printf("Successfully fetched %d candles", len(resp.Candles))
 	}
@@ -444,7 +474,7 @@ func (c *CoinbaseClient) GetOrderBook(limit int) (*OrderBook, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Only log in debug mode for performance
+	// Log order book fetching in debug mode
 	if os.Getenv("LOG_LEVEL") == "DEBUG" {
 		c.logger.Printf("Fetching order book for %s (limit %d)...", c.tradingPair, limit)
 	}
@@ -482,12 +512,13 @@ func (c *CoinbaseClient) GetOrderBook(limit int) (*OrderBook, error) {
 		return nil, fmt.Errorf("failed to unmarshal order book response: %w", err)
 	}
 
+	// Convert to our simplified structure
 	orderBook := &OrderBook{
 		Bids: response.Pricebook.Bids,
 		Asks: response.Pricebook.Asks,
 	}
 
-	// Only log in debug mode for performance
+	// Log successful order book fetch in debug mode
 	if os.Getenv("LOG_LEVEL") == "DEBUG" {
 		c.logger.Printf("Successfully fetched order book with %d bids and %d asks", len(orderBook.Bids), len(orderBook.Asks))
 	}
@@ -501,7 +532,7 @@ func (c *CoinbaseClient) GetSignal() (*SignalResponse, error) {
 
 // GetSignalWithCandles allows customizing candle count and granularity for different use cases
 func (c *CoinbaseClient) GetSignalWithCandles(candleCount int, granularity string) (*SignalResponse, error) {
-	// Only log in debug mode for performance
+	// Log signal fetching in debug mode
 	if os.Getenv("LOG_LEVEL") == "DEBUG" {
 		c.logger.Printf("Fetching signal data for %s (%d %s candles)...", c.tradingPair, candleCount, granularity)
 	}
@@ -529,13 +560,15 @@ func (c *CoinbaseClient) GetSignalWithCandles(candleCount int, granularity strin
 	if trendChange && c.webhookURL != "" {
 		if err := c.SendWebhook(response); err != nil {
 			c.logger.Printf("Failed to send webhook: %v", err)
-			// Don't fail the signal request if webhook fails
 		} else {
-			c.logger.Printf("Webhook notification sent for trend change: %s → %s", currentTrend, triggers)
+			// Log webhook success in debug mode
+			if os.Getenv("LOG_LEVEL") == "DEBUG" {
+				c.logger.Printf("Webhook notification sent for trend change: %s → %s", currentTrend, triggers)
+			}
 		}
 	}
 
-	// Only log in debug mode for performance
+	// Log signal calculation completion in debug mode
 	if os.Getenv("LOG_LEVEL") == "DEBUG" {
 		c.logger.Printf("Signal calculation complete: bearish=%v, triggers=%v", response.BearishSignal, triggers)
 	}
@@ -555,7 +588,7 @@ func (c *CoinbaseClient) GetMarketState(limit int) (*MarketState, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Only log in debug mode for performance
+	// Log market state fetching in debug mode
 	if os.Getenv("LOG_LEVEL") == "DEBUG" {
 		c.logger.Printf("Fetching market state for %s (limit %d)...", c.tradingPair, limit)
 	}
@@ -567,8 +600,7 @@ func (c *CoinbaseClient) GetMarketState(limit int) (*MarketState, error) {
 	}
 
 	// Get product information for last price and volume
-	productEndpoint := fmt.Sprintf("/products/%s", c.tradingPair)
-	respBody, err := c.makeRequest(ctx, "GET", productEndpoint, nil)
+	respBody, err := c.makeRequest(ctx, "GET", "/products/"+c.tradingPair, nil)
 	if err != nil {
 		c.logger.Printf("Error fetching product info: %v", err)
 		return nil, fmt.Errorf("failed to fetch product info: %w", err)
@@ -617,8 +649,11 @@ func (c *CoinbaseClient) GetMarketState(limit int) (*MarketState, error) {
 		Timestamp:     time.Now().Unix(),
 	}
 
-	c.logger.Printf("Market state: Bid=%s, Ask=%s, Spread=%s (%s%%)",
-		bestBid, bestAsk, spread, spreadPercent)
+	// Log market state completion in debug mode
+	if os.Getenv("LOG_LEVEL") == "DEBUG" {
+		c.logger.Printf("Market state: Bid=%s, Ask=%s, Spread=%s (%s%%)",
+			marketState.BestBid, marketState.BestAsk, marketState.Spread, marketState.SpreadPercent)
+	}
 
 	return marketState, nil
 }

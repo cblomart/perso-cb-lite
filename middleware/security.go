@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -16,6 +15,44 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// Logger interface for consistent logging
+type Logger interface {
+	Info(format string, args ...interface{})
+	Warn(format string, args ...interface{})
+	Error(format string, args ...interface{})
+	Debug(format string, args ...interface{})
+}
+
+// SimpleLogger implements Logger interface
+type SimpleLogger struct {
+	*log.Logger
+	level string
+}
+
+func (l *SimpleLogger) Info(format string, args ...interface{}) {
+	if l.level == "INFO" || l.level == "DEBUG" || l.level == "WARN" || l.level == "ERROR" {
+		l.Printf("[INFO] "+format, args...)
+	}
+}
+
+func (l *SimpleLogger) Warn(format string, args ...interface{}) {
+	if l.level == "WARN" || l.level == "DEBUG" || l.level == "ERROR" {
+		l.Printf("[WARN] "+format, args...)
+	}
+}
+
+func (l *SimpleLogger) Error(format string, args ...interface{}) {
+	if l.level == "DEBUG" || l.level == "ERROR" {
+		l.Printf("[ERROR] "+format, args...)
+	}
+}
+
+func (l *SimpleLogger) Debug(format string, args ...interface{}) {
+	if l.level == "DEBUG" {
+		l.Printf("[DEBUG] "+format, args...)
+	}
+}
+
 // SecurityConfig holds security configuration
 type SecurityConfig struct {
 	AccessKey           string
@@ -24,6 +61,7 @@ type SecurityConfig struct {
 	EnableRateLimiting  bool
 	EnableIPWhitelist   bool
 	EnableAccessKeyAuth bool
+	logger              Logger
 }
 
 // RateLimiter holds rate limiting data per IP
@@ -57,13 +95,29 @@ func (rl *RateLimiter) GetLimiter(ip string, requestsPerMinute int) *rate.Limite
 func LoadSecurityConfig() *SecurityConfig {
 	config := &SecurityConfig{}
 
+	// Initialize logger
+	logLevel := os.Getenv("LOG_LEVEL")
+	if logLevel == "" {
+		environment := os.Getenv("ENVIRONMENT")
+		if environment == "production" {
+			logLevel = "WARN"
+		} else {
+			logLevel = "INFO"
+		}
+	}
+
+	config.logger = &SimpleLogger{
+		Logger: log.New(os.Stdout, "", log.LstdFlags),
+		level:  logLevel,
+	}
+
 	// Load access key
 	config.AccessKey = os.Getenv("API_ACCESS_KEY")
 	if config.AccessKey == "" {
 		// Auto-generate if not provided
 		config.AccessKey = uuid.New().String()
-		fmt.Printf("🔐 Auto-generated API Access Key: %s\n", config.AccessKey)
-		fmt.Printf("⚠️  WARNING: This key will change on container restart! Add to .env: API_ACCESS_KEY=%s\n", config.AccessKey)
+		config.logger.Warn("🔐 Auto-generated API Access Key: %s", config.AccessKey)
+		config.logger.Warn("⚠️  WARNING: This key will change on container restart! Add to .env: API_ACCESS_KEY=%s", config.AccessKey)
 	}
 
 	// Load rate limiting config
@@ -101,10 +155,10 @@ func getEnvBool(key string, defaultValue bool) bool {
 	if value == "" {
 		return defaultValue
 	}
-	return strings.ToLower(value) == "true"
+	return strings.ToLower(value) == "true" || value == "1"
 }
 
-// SecurityMiddleware creates a middleware with all security features
+// SecurityMiddleware creates a Gin middleware for security features
 func SecurityMiddleware(config *SecurityConfig) gin.HandlerFunc {
 	rateLimiter := NewRateLimiter()
 
@@ -115,7 +169,7 @@ func SecurityMiddleware(config *SecurityConfig) gin.HandlerFunc {
 		// IP Whitelist check
 		if config.EnableIPWhitelist && len(config.AllowedIPs) > 0 {
 			if !isIPAllowed(clientIP, config.AllowedIPs) {
-				log.Printf("🚫 IP WHITELIST REJECTED: %s (User-Agent: %s, Path: %s)",
+				config.logger.Warn("🚫 IP WHITELIST REJECTED: %s (User-Agent: %s, Path: %s)",
 					clientIP, c.GetHeader("User-Agent"), c.Request.URL.Path)
 				c.JSON(http.StatusUnauthorized, gin.H{
 					"error":   "Unauthorized",
@@ -124,15 +178,15 @@ func SecurityMiddleware(config *SecurityConfig) gin.HandlerFunc {
 				c.Abort()
 				return
 			}
-			// Log successful IP whitelist check for monitoring
-			log.Printf("✅ IP WHITELIST ALLOWED: %s (Path: %s)", clientIP, c.Request.URL.Path)
+			// Log successful IP whitelist check for monitoring (debug only)
+			config.logger.Debug("✅ IP WHITELIST ALLOWED: %s (Path: %s)", clientIP, c.Request.URL.Path)
 		}
 
 		// Rate limiting
 		if config.EnableRateLimiting {
 			limiter := rateLimiter.GetLimiter(clientIP, config.RateLimitPerMinute)
 			if !limiter.Allow() {
-				log.Printf("⏱️ RATE LIMIT EXCEEDED: %s (User-Agent: %s, Path: %s)",
+				config.logger.Warn("⏱️ RATE LIMIT EXCEEDED: %s (User-Agent: %s, Path: %s)",
 					clientIP, c.GetHeader("User-Agent"), c.Request.URL.Path)
 				c.JSON(http.StatusTooManyRequests, gin.H{
 					"error":   "Too Many Requests",
@@ -151,7 +205,7 @@ func SecurityMiddleware(config *SecurityConfig) gin.HandlerFunc {
 			}
 
 			if accessKey != config.AccessKey {
-				log.Printf("🔑 INVALID ACCESS KEY: %s (User-Agent: %s, Path: %s)",
+				config.logger.Warn("🔑 INVALID ACCESS KEY: %s (User-Agent: %s, Path: %s)",
 					clientIP, c.GetHeader("User-Agent"), c.Request.URL.Path)
 				c.JSON(http.StatusUnauthorized, gin.H{
 					"error":   "Unauthorized",
@@ -160,8 +214,8 @@ func SecurityMiddleware(config *SecurityConfig) gin.HandlerFunc {
 				c.Abort()
 				return
 			}
-			// Log successful access key authentication for monitoring
-			log.Printf("🔑 ACCESS KEY VALID: %s (Path: %s)", clientIP, c.Request.URL.Path)
+			// Log successful access key authentication for monitoring (debug only)
+			config.logger.Debug("🔑 ACCESS KEY VALID: %s (Path: %s)", clientIP, c.Request.URL.Path)
 		}
 
 		c.Next()

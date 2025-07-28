@@ -49,6 +49,7 @@ func NewCoinbaseClient(tradingPair string, webhookURL string, webhookMaxRetries 
 		return nil, fmt.Errorf("missing required environment variables: COINBASE_API_KEY, COINBASE_API_SECRET")
 	}
 
+	// Initialize logger
 	logLevel := os.Getenv("LOG_LEVEL")
 	if logLevel == "" {
 		environment := os.Getenv("ENVIRONMENT")
@@ -108,11 +109,8 @@ func NewCoinbaseClient(tradingPair string, webhookURL string, webhookMaxRetries 
 		webhookMaxRetries:   webhookMaxRetries,
 		webhookTimeout:      webhookTimeout,
 		httpClient:          httpClient,
-		requestCount:        0,
 		startTime:           time.Now(),
-		lastTrendState:      "neutral",        // Start with neutral state
-		lastSignalTime:      time.Time{},      // Zero time means no signal sent yet
-		trendChangeCooldown: 30 * time.Minute, // Minimum 30 minutes between trend change signals
+		trendChangeCooldown: 5 * time.Minute, // 5 minutes between trend change signals
 	}, nil
 }
 
@@ -143,13 +141,14 @@ func (c *CoinbaseClient) GetPerformanceStats() map[string]interface{} {
 // SendWebhook sends a webhook notification to n8n with retry logic
 func (c *CoinbaseClient) SendWebhook(signal *SignalResponse) error {
 	if c.webhookURL == "" {
-		return fmt.Errorf("webhook URL not configured")
+		return fmt.Errorf("no webhook URL configured")
 	}
 
-	// Retry configuration
 	maxRetries := c.webhookMaxRetries
 	baseDelay := 1 * time.Second
+	startTime := time.Now()
 
+	// Debug: Log webhook start
 	if os.Getenv("LOG_LEVEL") == "DEBUG" {
 		c.logger.Printf("🚀 Starting webhook delivery (max retries: %d, timeout: %ds)", maxRetries, c.webhookTimeout)
 	}
@@ -159,12 +158,12 @@ func (c *CoinbaseClient) SendWebhook(signal *SignalResponse) error {
 			c.logger.Printf("🔄 Webhook attempt %d/%d", attempt+1, maxRetries+1)
 		}
 
-		startTime := time.Now()
+		attemptStartTime := time.Now()
 		err := c.sendWebhookAttempt(signal)
-		duration := time.Since(startTime)
+		duration := time.Since(attemptStartTime)
 
 		if err == nil {
-			// Success on first attempt
+			// Success - log based on retry count
 			if attempt == 0 {
 				if os.Getenv("LOG_LEVEL") == "DEBUG" {
 					c.logger.Printf("✅ Webhook sent successfully to %s (duration: %v)", c.webhookURL, duration)
@@ -181,32 +180,24 @@ func (c *CoinbaseClient) SendWebhook(signal *SignalResponse) error {
 			return nil
 		}
 
-		// Log the error
-		if attempt == 0 {
-			if os.Getenv("LOG_LEVEL") == "DEBUG" {
-				c.logger.Printf("❌ Webhook failed (attempt %d/%d, duration: %v): %v", attempt+1, maxRetries+1, duration, err)
-			} else {
-				c.logger.Printf("Webhook failed (attempt %d/%d): %v", attempt+1, maxRetries+1, err)
-			}
+		// Error logging - always log errors
+		if os.Getenv("LOG_LEVEL") == "DEBUG" {
+			c.logger.Printf("❌ Webhook failed (attempt %d/%d, duration: %v): %v", attempt+1, maxRetries+1, duration, err)
 		} else {
-			if os.Getenv("LOG_LEVEL") == "DEBUG" {
-				c.logger.Printf("❌ Webhook retry failed (attempt %d/%d, duration: %v): %v", attempt+1, maxRetries+1, duration, err)
-			} else {
-				c.logger.Printf("Webhook retry failed (attempt %d/%d): %v", attempt+1, maxRetries+1, err)
-			}
+			c.logger.Printf("Webhook failed (attempt %d/%d): %v", attempt+1, maxRetries+1, err)
 		}
 
-		// Don't retry on the last attempt
+		// If this was the last attempt, give up
 		if attempt == maxRetries {
 			if os.Getenv("LOG_LEVEL") == "DEBUG" {
 				c.logger.Printf("💀 Webhook failed after %d attempts, giving up (total time: %v)", maxRetries+1, time.Since(startTime))
 			} else {
 				c.logger.Printf("Webhook failed after %d attempts, giving up", maxRetries+1)
 			}
-			return fmt.Errorf("webhook failed after %d attempts: %w", maxRetries+1, err)
+			return fmt.Errorf("webhook failed after %d attempts", maxRetries+1)
 		}
 
-		// Calculate exponential backoff delay
+		// Calculate delay with exponential backoff
 		delay := time.Duration(float64(baseDelay) * math.Pow(2, float64(attempt)))
 		if os.Getenv("LOG_LEVEL") == "DEBUG" {
 			c.logger.Printf("⏳ Retrying webhook in %v (exponential backoff: attempt %d)", delay, attempt+1)
