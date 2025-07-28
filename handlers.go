@@ -8,6 +8,8 @@ import (
 
 	"coinbase-base/client"
 
+	"os"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -504,4 +506,46 @@ func (h *Handlers) GetGraph(c *gin.Context) {
 
 	// Return PNG data
 	c.Data(http.StatusOK, "image/png", pngData)
+}
+
+// CheckSignal performs a manual signal check and returns detailed results
+func (h *Handlers) CheckSignal(c *gin.Context) {
+	// Track asset value before checking signals
+	if err := h.client.TrackAssetValue(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to track asset value",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// Get signal using lightweight method
+	signal, err := h.client.GetSignalLightweight()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to calculate signal",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// Determine if webhook would be sent
+	webhookURL := os.Getenv("WEBHOOK_URL")
+	webhookWouldBeSent := webhookURL != "" && signal.BearishSignal
+
+	// Return detailed signal information
+	c.JSON(http.StatusOK, gin.H{
+		"signal": gin.H{
+			"bearish_signal": signal.BearishSignal,
+			"triggers":       signal.Triggers,
+			"timestamp":      signal.Timestamp,
+			"indicators":     signal.Indicators,
+		},
+		"webhook": gin.H{
+			"configured":    webhookURL != "",
+			"url":           webhookURL,
+			"would_be_sent": webhookWouldBeSent,
+		},
+		"timestamp": time.Now().Format(time.RFC3339),
+	})
 }

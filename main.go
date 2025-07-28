@@ -189,6 +189,7 @@ func main() {
 	{
 		api.GET("/performance", handlers.GetPerformance)
 		api.GET("/signal", handlers.GetSignal)
+		api.GET("/signal/check", handlers.CheckSignal) // Manual signal check
 		api.GET("/accounts", handlers.GetAccounts)
 		api.GET("/orders", handlers.GetOrders)
 		api.POST("/buy", handlers.BuyBTC)
@@ -263,8 +264,8 @@ func startSignalPolling(client *client.CoinbaseClient, webhookURL string) {
 
 	log.Printf("🚀 Background signal polling started - checking every 10 minutes")
 
-	// Run initial check after 1 minute
-	time.Sleep(1 * time.Minute)
+	// Run initial check immediately
+	log.Printf("🔍 Running initial signal check...")
 	checkSignal(client)
 
 	// Continue polling every 10 minutes
