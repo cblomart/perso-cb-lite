@@ -66,7 +66,7 @@ func (c *CoinbaseClient) makeRequest(ctx context.Context, method, endpoint strin
 		for key, values := range req.Header {
 			for _, value := range values {
 				if key == "Authorization" {
-					c.logger.Printf("  %s: Bearer [JWT_TOKEN]")
+					c.logger.Printf("  %s: Bearer %s", key, jwt)
 				} else {
 					c.logger.Printf("  %s: %s", key, value)
 				}

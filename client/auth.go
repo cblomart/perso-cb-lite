@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"os"
 	"time"
 )
 
@@ -104,15 +103,6 @@ func (c *CoinbaseClient) createJWT(ctx context.Context, method, endpoint string)
 	signatureB64 := base64.RawURLEncoding.EncodeToString(signature)
 
 	jwt := payload + "." + signatureB64
-
-	// Debug output (only in DEBUG log level and not for health checks)
-	logLevel := os.Getenv("LOG_LEVEL")
-	if logLevel == "DEBUG" && ctx.Value(healthCheckKey) != true {
-		headerPretty, _ := json.MarshalIndent(header, "", "  ")
-		claimsPretty, _ := json.MarshalIndent(claims, "", "  ")
-		c.logger.Printf("JWT Header: %s", string(headerPretty))
-		c.logger.Printf("JWT Claims: %s", string(claimsPretty))
-	}
 
 	return jwt, nil
 }
