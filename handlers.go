@@ -487,8 +487,8 @@ func (h *Handlers) GetGraph(c *gin.Context) {
 		return
 	}
 
-	// Generate PNG chart
-	pngData, err := h.client.GenerateChartPNG(graphData)
+	// Generate PNG chart with dual Y-axes
+	pngData, err := h.client.GenerateDualAxisChartPNG(graphData)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to generate chart",

@@ -37,11 +37,11 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 		return time.Time{}, fmt.Errorf("unable to parse timestamp: %s", timeStr)
 	}
 
-	// Create a new plot with dual Y-axes
+	// Create a new plot
 	p := plot.New()
 	p.Title.Text = fmt.Sprintf("BTC-USDC Trading Chart (%s)", graphData.Period)
 	p.X.Label.Text = "Time"
-	p.Y.Label.Text = "BTC Price (USD) - Asset Value (USD)"
+	p.Y.Label.Text = "BTC Price (USD)"
 
 	// Create candlestick data with consistent time parsing
 	candles := make(plotter.XYs, 0, len(graphData.Candles))
@@ -297,75 +297,16 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 		}
 	}
 
-	// Create dual Y-axes for account values
+	// Add account value information to title (without plotting on same axis)
 	if len(graphData.AccountValues) > 0 {
-		// Find the range of BTC prices to scale asset values appropriately
-		var minPrice, maxPrice float64
-		if len(candles) > 0 {
-			minPrice = candles[0].Y
-			maxPrice = candles[0].Y
-			for _, candle := range candles {
-				if candle.Y < minPrice {
-					minPrice = candle.Y
-				}
-				if candle.Y > maxPrice {
-					maxPrice = candle.Y
-				}
-			}
-		}
+		firstValue := graphData.AccountValues[0].TotalUSD
+		lastValue := graphData.AccountValues[len(graphData.AccountValues)-1].TotalUSD
+		valueChange := lastValue - firstValue
+		valueChangePct := (valueChange / firstValue) * 100
 
-		// Find the range of asset values
-		var minAsset, maxAsset float64
-		if len(graphData.AccountValues) > 0 {
-			minAsset = graphData.AccountValues[0].TotalUSD
-			maxAsset = graphData.AccountValues[0].TotalUSD
-			for _, av := range graphData.AccountValues {
-				if av.TotalUSD < minAsset {
-					minAsset = av.TotalUSD
-				}
-				if av.TotalUSD > maxAsset {
-					maxAsset = av.TotalUSD
-				}
-			}
-		}
-
-		// Scale asset values to be visible on the same axis
-		// We'll scale them to be in the upper portion of the price range
-		priceRange := maxPrice - minPrice
-		assetRange := maxAsset - minAsset
-
-		// Scale factor to fit asset values in the upper 20% of the price range
-		scaleFactor := (priceRange * 0.2) / assetRange
-		offset := maxPrice * 0.8 // Position in upper 20% of chart
-
-		// Create scaled account value data
-		accountData := make(plotter.XYs, len(graphData.AccountValues))
-		for i, accountValue := range graphData.AccountValues {
-			accountData[i].X = float64(accountValue.Timestamp)
-			// Scale the asset value to be visible on the same axis
-			accountData[i].Y = (accountValue.TotalUSD * scaleFactor) + offset
-		}
-
-		// Create a separate plotter for the scaled account values
-		accountLine, err := plotter.NewLine(accountData)
-		if err == nil {
-			accountLine.Color = color.RGBA{R: 128, G: 0, B: 128, A: 255} // Purple
-			accountLine.Width = vg.Points(2)
-			accountLine.Dashes = []vg.Length{vg.Points(5), vg.Points(5)} // Dashed line
-			p.Add(accountLine)
-		}
-
-		// Add a note about the scaling in the title
-		if len(graphData.AccountValues) > 0 {
-			firstValue := graphData.AccountValues[0].TotalUSD
-			lastValue := graphData.AccountValues[len(graphData.AccountValues)-1].TotalUSD
-			valueChange := lastValue - firstValue
-			valueChangePct := (valueChange / firstValue) * 100
-
-			// Update title to include asset value information
-			p.Title.Text = fmt.Sprintf("BTC-USDC Trading Chart (%s) - Asset Value: $%.2f → $%.2f (%.1f%%)",
-				graphData.Period, firstValue, lastValue, valueChangePct)
-		}
+		// Update title to include asset value information
+		p.Title.Text = fmt.Sprintf("BTC-USDC Trading Chart (%s) - Asset Value: $%.2f → $%.2f (%.1f%%)",
+			graphData.Period, firstValue, lastValue, valueChangePct)
 	}
 
 	// Format X-axis as time with better tick marks
@@ -396,12 +337,6 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 		sellScatter.Shape = draw.TriangleGlyph{}
 		p.Legend.Add("Sell", sellScatter)
 	}
-	if len(graphData.AccountValues) > 0 {
-		accountLine, _ := plotter.NewLine(plotter.XYs{})
-		accountLine.Color = color.RGBA{R: 128, G: 0, B: 128, A: 255}
-		accountLine.Dashes = []vg.Length{vg.Points(5), vg.Points(5)}
-		p.Legend.Add("Asset Value", accountLine)
-	}
 
 	// Add summary text with actual data validation
 	summaryText := fmt.Sprintf("Period: %s | Candles: %d | Trades: %d",
@@ -418,6 +353,262 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 	img := vgimg.New(12*vg.Inch, 8*vg.Inch)
 	dc := draw.New(img)
 	p.Draw(dc)
+
+	// Convert to PNG bytes
+	var buf bytes.Buffer
+	err = png.Encode(&buf, img.Image())
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode PNG: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+// GenerateDualAxisChartPNG creates a PNG chart with proper dual Y-axes
+func (c *CoinbaseClient) GenerateDualAxisChartPNG(graphData *GraphData) ([]byte, error) {
+	// Validate input data
+	if len(graphData.Candles) == 0 {
+		return nil, fmt.Errorf("no candle data available")
+	}
+
+	// Helper function to parse timestamps consistently
+	parseTimestamp := func(timeStr string) (time.Time, error) {
+		// Try RFC3339 first
+		if t, err := time.Parse(time.RFC3339, timeStr); err == nil {
+			return t, nil
+		}
+		// Try Unix timestamp
+		if unixTime, err := strconv.ParseInt(timeStr, 10, 64); err == nil {
+			return time.Unix(unixTime, 0), nil
+		}
+		return time.Time{}, fmt.Errorf("unable to parse timestamp: %s", timeStr)
+	}
+
+	// Create two separate plots
+	pricePlot := plot.New()
+	pricePlot.Title.Text = "BTC Price"
+	pricePlot.X.Label.Text = "Time"
+	pricePlot.Y.Label.Text = "BTC Price (USD)"
+
+	assetPlot := plot.New()
+	assetPlot.Title.Text = "Asset Value"
+	assetPlot.X.Label.Text = "Time"
+	assetPlot.Y.Label.Text = "Total Asset Value (USD)"
+
+	// Create candlestick data
+	candles := make(plotter.XYs, 0, len(graphData.Candles))
+	for _, candle := range graphData.Candles {
+		timestamp, err := parseTimestamp(candle.Start)
+		if err != nil {
+			continue
+		}
+
+		openPrice, err := strconv.ParseFloat(candle.Open, 64)
+		if err != nil {
+			continue
+		}
+		highPrice, err := strconv.ParseFloat(candle.High, 64)
+		if err != nil {
+			continue
+		}
+		lowPrice, err := strconv.ParseFloat(candle.Low, 64)
+		if err != nil {
+			continue
+		}
+		closePrice, err := strconv.ParseFloat(candle.Close, 64)
+		if err != nil {
+			continue
+		}
+
+		if openPrice > 0 && highPrice > 0 && lowPrice > 0 && closePrice > 0 {
+			candles = append(candles, plotter.XY{
+				X: float64(timestamp.Unix()),
+				Y: closePrice,
+			})
+		}
+	}
+
+	if len(candles) == 0 {
+		return nil, fmt.Errorf("no valid candle data after parsing")
+	}
+
+	// Sort candles by time
+	sort.Slice(candles, func(i, j int) bool {
+		return candles[i].X < candles[j].X
+	})
+
+	// Add candlesticks to price plot
+	for _, candle := range graphData.Candles {
+		timestamp, err := parseTimestamp(candle.Start)
+		if err != nil {
+			continue
+		}
+
+		openPrice, _ := strconv.ParseFloat(candle.Open, 64)
+		highPrice, _ := strconv.ParseFloat(candle.High, 64)
+		lowPrice, _ := strconv.ParseFloat(candle.Low, 64)
+		closePrice, _ := strconv.ParseFloat(candle.Close, 64)
+
+		isBullish := closePrice > openPrice
+
+		// Wick line
+		wickData := plotter.XYs{
+			{X: float64(timestamp.Unix()), Y: highPrice},
+			{X: float64(timestamp.Unix()), Y: lowPrice},
+		}
+		wickLine, err := plotter.NewLine(wickData)
+		if err == nil {
+			wickLine.Color = color.RGBA{R: 0, G: 0, B: 0, A: 255}
+			wickLine.Width = vg.Points(1)
+			pricePlot.Add(wickLine)
+		}
+
+		// Body line
+		bodyData := plotter.XYs{
+			{X: float64(timestamp.Unix()) - 0.3, Y: openPrice},
+			{X: float64(timestamp.Unix()) + 0.3, Y: closePrice},
+		}
+		bodyLine, err := plotter.NewLine(bodyData)
+		if err == nil {
+			if isBullish {
+				bodyLine.Color = color.RGBA{R: 0, G: 255, B: 0, A: 255}
+			} else {
+				bodyLine.Color = color.RGBA{R: 255, G: 0, B: 0, A: 255}
+			}
+			bodyLine.Width = vg.Points(3)
+			pricePlot.Add(bodyLine)
+		}
+	}
+
+	// Add price line
+	priceLine, err := plotter.NewLine(candles)
+	if err == nil {
+		priceLine.Color = color.RGBA{R: 0, G: 0, B: 255, A: 100}
+		priceLine.Width = vg.Points(0.5)
+		pricePlot.Add(priceLine)
+	}
+
+	// Add EMAs to price plot
+	if len(graphData.Indicators.EMA12) > 0 && len(graphData.Indicators.EMA12) == len(graphData.Candles) {
+		ema12Data := make(plotter.XYs, 0, len(candles))
+		for i, candle := range graphData.Candles {
+			timestamp, err := parseTimestamp(candle.Start)
+			if err != nil {
+				continue
+			}
+			ema12Value := graphData.Indicators.EMA12[i]
+			if ema12Value > 0 {
+				ema12Data = append(ema12Data, plotter.XY{
+					X: float64(timestamp.Unix()),
+					Y: ema12Value,
+				})
+			}
+		}
+		if len(ema12Data) > 0 {
+			ema12Line, err := plotter.NewLine(ema12Data)
+			if err == nil {
+				ema12Line.Color = color.RGBA{R: 255, G: 165, B: 0, A: 255}
+				ema12Line.Width = vg.Points(1.5)
+				pricePlot.Add(ema12Line)
+			}
+		}
+	}
+
+	if len(graphData.Indicators.EMA26) > 0 && len(graphData.Indicators.EMA26) == len(graphData.Candles) {
+		ema26Data := make(plotter.XYs, 0, len(candles))
+		for i, candle := range graphData.Candles {
+			timestamp, err := parseTimestamp(candle.Start)
+			if err != nil {
+				continue
+			}
+			ema26Value := graphData.Indicators.EMA26[i]
+			if ema26Value > 0 {
+				ema26Data = append(ema26Data, plotter.XY{
+					X: float64(timestamp.Unix()),
+					Y: ema26Value,
+				})
+			}
+		}
+		if len(ema26Data) > 0 {
+			ema26Line, err := plotter.NewLine(ema26Data)
+			if err == nil {
+				ema26Line.Color = color.RGBA{R: 255, G: 0, B: 0, A: 255}
+				ema26Line.Width = vg.Points(1.5)
+				pricePlot.Add(ema26Line)
+			}
+		}
+	}
+
+	// Add trade markers to price plot
+	if len(graphData.Trades) > 0 {
+		buyTrades := make(plotter.XYs, 0)
+		sellTrades := make(plotter.XYs, 0)
+
+		for _, trade := range graphData.Trades {
+			price, _ := strconv.ParseFloat(trade.Price, 64)
+			tradePoint := plotter.XY{
+				X: float64(trade.ExecutedAt),
+				Y: price,
+			}
+
+			if trade.Side == "BUY" {
+				buyTrades = append(buyTrades, tradePoint)
+			} else {
+				sellTrades = append(sellTrades, tradePoint)
+			}
+		}
+
+		if len(buyTrades) > 0 {
+			buyScatter, err := plotter.NewScatter(buyTrades)
+			if err == nil {
+				buyScatter.Color = color.RGBA{R: 0, G: 255, B: 0, A: 255}
+				buyScatter.Shape = draw.TriangleGlyph{}
+				buyScatter.Radius = vg.Points(4)
+				pricePlot.Add(buyScatter)
+			}
+		}
+
+		if len(sellTrades) > 0 {
+			sellScatter, err := plotter.NewScatter(sellTrades)
+			if err == nil {
+				sellScatter.Color = color.RGBA{R: 255, G: 0, B: 0, A: 255}
+				sellScatter.Shape = draw.TriangleGlyph{}
+				sellScatter.Radius = vg.Points(4)
+				pricePlot.Add(sellScatter)
+			}
+		}
+	}
+
+	// Add asset values to asset plot
+	if len(graphData.AccountValues) > 0 {
+		assetData := make(plotter.XYs, len(graphData.AccountValues))
+		for i, accountValue := range graphData.AccountValues {
+			assetData[i].X = float64(accountValue.Timestamp)
+			assetData[i].Y = accountValue.TotalUSD
+		}
+
+		assetLine, err := plotter.NewLine(assetData)
+		if err == nil {
+			assetLine.Color = color.RGBA{R: 128, G: 0, B: 128, A: 255}
+			assetLine.Width = vg.Points(2)
+			assetLine.Dashes = []vg.Length{vg.Points(5), vg.Points(5)}
+			assetPlot.Add(assetLine)
+		}
+	}
+
+	// Format X-axes
+	pricePlot.X.Tick.Marker = plot.TimeTicks{Format: "01-02 15:04"}
+	assetPlot.X.Tick.Marker = plot.TimeTicks{Format: "01-02 15:04"}
+
+	// Create combined image
+	img := vgimg.New(16*vg.Inch, 8*vg.Inch)
+	dc := draw.New(img)
+
+	// Draw price plot on left half
+	pricePlot.Draw(dc)
+
+	// Draw asset plot on right half
+	assetPlot.Draw(dc)
 
 	// Convert to PNG bytes
 	var buf bytes.Buffer
