@@ -72,7 +72,7 @@ func main() {
 	}
 
 	// Initialize Coinbase client
-	coinbaseClient, err := client.NewCoinbaseClient(tradingConfig.GetTradingPair(), tradingConfig.WebhookURL)
+	coinbaseClient, err := client.NewCoinbaseClient(tradingConfig.GetTradingPair(), tradingConfig.WebhookURL, tradingConfig.WebhookMaxRetries, tradingConfig.WebhookTimeout)
 	if err != nil {
 		log.Fatalf("Failed to initialize Coinbase client: %v", err)
 	}

@@ -53,6 +53,7 @@ The `/api/v1/signal` endpoint provides comprehensive technical analysis:
 When `WEBHOOK_URL` is configured, the API automatically:
 - **Polls Coinbase every 10 minutes** for signal data
 - **Sends GET requests to n8n** when bearish signals are detected
+- **Retries failed webhooks** with exponential backoff (configurable)
 - **Logs all signal checks** for monitoring
 
 ```bash
@@ -62,6 +63,12 @@ WEBHOOK_URL=http://n8n:5678/webhook/signal
 # Query parameters sent to n8n:
 # ?signal=true&bearish=true&triggers=MACD_BEARISH_CROSSOVER,EMA_BEARISH_CROSSOVER&timestamp=1234567890
 ```
+
+**Webhook Reliability:**
+- **Retry attempts**: Configurable (default: 3 attempts)
+- **Exponential backoff**: 1s, 2s, 4s delays between retries
+- **Timeout per attempt**: Configurable (default: 5 seconds)
+- **Failure logging**: Detailed error messages for debugging
 
 **n8n Integration:**
 1. Create a webhook trigger in n8n
@@ -227,6 +234,8 @@ TRADING_QUOTE_CURRENCY=USD
 | `ENVIRONMENT` | No | development | Environment (development/production) |
 | `LOG_LEVEL` | No | auto | Log level (DEBUG/INFO/WARN/ERROR, auto: WARN in prod, INFO in dev) |
 | `WEBHOOK_URL` | No | - | n8n webhook URL for signal notifications (optional) |
+| `WEBHOOK_MAX_RETRIES` | No | 3 | Maximum webhook retry attempts (0-10) |
+| `WEBHOOK_TIMEOUT_SECONDS` | No | 5 | Webhook timeout per attempt in seconds (1-30) |
 
 ## Docker Deployment
 

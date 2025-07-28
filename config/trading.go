@@ -3,15 +3,18 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
 // TradingConfig holds trading configuration
 type TradingConfig struct {
-	BaseCurrency  string
-	QuoteCurrency string
-	TradingPair   string
-	WebhookURL    string
+	BaseCurrency      string
+	QuoteCurrency     string
+	TradingPair       string
+	WebhookURL        string
+	WebhookMaxRetries int
+	WebhookTimeout    int
 }
 
 // LoadTradingConfig loads trading configuration from environment variables
@@ -41,6 +44,30 @@ func LoadTradingConfig() *TradingConfig {
 
 	// Load webhook URL for n8n notifications
 	config.WebhookURL = os.Getenv("WEBHOOK_URL")
+
+	// Load webhook retry configuration
+	webhookMaxRetries := os.Getenv("WEBHOOK_MAX_RETRIES")
+	if webhookMaxRetries == "" {
+		config.WebhookMaxRetries = 3 // Default: 3 retries
+	} else {
+		if retries, err := strconv.Atoi(webhookMaxRetries); err == nil && retries >= 0 {
+			config.WebhookMaxRetries = retries
+		} else {
+			config.WebhookMaxRetries = 3 // Default on invalid value
+		}
+	}
+
+	// Load webhook timeout configuration
+	webhookTimeout := os.Getenv("WEBHOOK_TIMEOUT_SECONDS")
+	if webhookTimeout == "" {
+		config.WebhookTimeout = 5 // Default: 5 seconds
+	} else {
+		if timeout, err := strconv.Atoi(webhookTimeout); err == nil && timeout > 0 {
+			config.WebhookTimeout = timeout
+		} else {
+			config.WebhookTimeout = 5 // Default on invalid value
+		}
+	}
 
 	return config
 }
