@@ -739,19 +739,11 @@ func (c *CoinbaseClient) GetGraphData(period string) (*GraphData, error) {
 			firstCandle := candles[0]
 			lastCandle := candles[len(candles)-1]
 
-			// Parse timestamps for logging
-			var firstTime, lastTime time.Time
-			if t, err := time.Parse(time.RFC3339, firstCandle.Start); err == nil {
-				firstTime = t
-			} else if unixTime, parseErr := strconv.ParseInt(firstCandle.Start, 10, 64); parseErr == nil {
-				firstTime = time.Unix(unixTime, 0)
-			}
-
-			if t, err := time.Parse(time.RFC3339, lastCandle.Start); err == nil {
-				lastTime = t
-			} else if unixTime, parseErr := strconv.ParseInt(lastCandle.Start, 10, 64); parseErr == nil {
-				lastTime = time.Unix(unixTime, 0)
-			}
+			// Parse timestamps consistently (Unix timestamps)
+			firstTimeUnix, _ := strconv.ParseInt(firstCandle.Start, 10, 64)
+			lastTimeUnix, _ := strconv.ParseInt(lastCandle.Start, 10, 64)
+			firstTime := time.Unix(firstTimeUnix, 0)
+			lastTime := time.Unix(lastTimeUnix, 0)
 
 			c.logger.Printf("Time range: %s to %s",
 				firstTime.Format("2006-01-02 15:04:05"),
@@ -868,8 +860,13 @@ func (c *CoinbaseClient) CalculateAccountValuesOverTime(candles []Candle, trades
 
 	for i := len(candles) - 1; i >= 0; i-- {
 		candle := candles[i]
-		// Parse the start time from the candle
-		candleTime, _ := time.Parse(time.RFC3339, candle.Start)
+		// Parse the start time from the candle (Unix timestamp)
+		candleTimeUnix, err := strconv.ParseInt(candle.Start, 10, 64)
+		if err != nil {
+			// Skip invalid timestamps
+			continue
+		}
+		candleTime := time.Unix(candleTimeUnix, 0)
 
 		// Process trades that happened before this candle
 		for tradeIndex >= 0 && time.Unix(trades[tradeIndex].ExecutedAt, 0).After(candleTime) {

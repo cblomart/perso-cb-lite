@@ -93,6 +93,14 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 				firstTime.Format("2006-01-02 15:04:05"),
 				lastTime.Format("2006-01-02 15:04:05"),
 				len(candles))
+
+			// Show sample candle timestamps
+			if len(candles) >= 3 {
+				fmt.Printf("Sample candle timestamps: %s, %s, %s\n",
+					time.Unix(int64(candles[0].X), 0).Format("2006-01-02 15:04:05"),
+					time.Unix(int64(candles[len(candles)/2].X), 0).Format("2006-01-02 15:04:05"),
+					time.Unix(int64(candles[len(candles)-1].X), 0).Format("2006-01-02 15:04:05"))
+			}
 		}
 		if len(graphData.Trades) > 0 {
 			firstTrade := time.Unix(graphData.Trades[0].ExecutedAt, 0)
@@ -101,6 +109,14 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 				firstTrade.Format("2006-01-02 15:04:05"),
 				lastTrade.Format("2006-01-02 15:04:05"),
 				len(graphData.Trades))
+
+			// Show sample trade timestamps
+			if len(graphData.Trades) >= 3 {
+				fmt.Printf("Sample trade timestamps: %s, %s, %s\n",
+					time.Unix(graphData.Trades[0].ExecutedAt, 0).Format("2006-01-02 15:04:05"),
+					time.Unix(graphData.Trades[len(graphData.Trades)/2].ExecutedAt, 0).Format("2006-01-02 15:04:05"),
+					time.Unix(graphData.Trades[len(graphData.Trades)-1].ExecutedAt, 0).Format("2006-01-02 15:04:05"))
+			}
 		}
 		if len(graphData.AccountValues) > 0 {
 			firstValue := time.Unix(graphData.AccountValues[0].Timestamp, 0)
@@ -109,6 +125,14 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 				firstValue.Format("2006-01-02 15:04:05"),
 				lastValue.Format("2006-01-02 15:04:05"),
 				len(graphData.AccountValues))
+
+			// Show sample account value timestamps
+			if len(graphData.AccountValues) >= 3 {
+				fmt.Printf("Sample account timestamps: %s, %s, %s\n",
+					time.Unix(graphData.AccountValues[0].Timestamp, 0).Format("2006-01-02 15:04:05"),
+					time.Unix(graphData.AccountValues[len(graphData.AccountValues)/2].Timestamp, 0).Format("2006-01-02 15:04:05"),
+					time.Unix(graphData.AccountValues[len(graphData.AccountValues)-1].Timestamp, 0).Format("2006-01-02 15:04:05"))
+			}
 		}
 	}
 
