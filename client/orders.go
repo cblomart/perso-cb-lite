@@ -686,8 +686,8 @@ func (c *CoinbaseClient) GetGraphData(period string) (*GraphData, error) {
 
 	// Fetch candles
 	candles, err := c.GetCandles(
-		startTime.Format(time.RFC3339),
-		endTime.Format(time.RFC3339),
+		fmt.Sprintf("%d", startTime.Unix()),
+		fmt.Sprintf("%d", endTime.Unix()),
 		granularity,
 		candleLimit,
 	)
@@ -745,9 +745,9 @@ func (c *CoinbaseClient) GetTradeHistory(startTime, endTime time.Time) ([]Trade,
 	}
 
 	// Use the fills endpoint to get completed trades
-	endpoint := fmt.Sprintf("/accounts/%s/fills?product_id=%s&start_sequence_timestamp=%s&end_sequence_timestamp=%s&limit=100",
+	endpoint := fmt.Sprintf("/accounts/%s/fills?product_id=%s&start_sequence_timestamp=%d&end_sequence_timestamp=%d&limit=100",
 		c.getAccountUUID(), c.tradingPair,
-		startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
+		startTime.Unix(), endTime.Unix())
 
 	respBody, err := c.makeRequest(ctx, "GET", endpoint, nil)
 	if err != nil {
