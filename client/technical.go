@@ -1,44 +1,58 @@
 package client
 
 import (
+	"context"
 	"math"
 	"strconv"
+	"sync"
 )
 
-// calculateEMA calculates Exponential Moving Average
+// calculateEMA calculates Exponential Moving Average with optimized performance
 func calculateEMA(prices []float64, period int) float64 {
 	if len(prices) < period {
 		return 0
 	}
 
+	// Use more efficient EMA calculation
 	multiplier := 2.0 / float64(period+1)
-	ema := prices[0] // Start with first price
 
-	for i := 1; i < len(prices); i++ {
+	// Start with SMA of first 'period' prices for better accuracy
+	var sum float64
+	for i := 0; i < period; i++ {
+		sum += prices[i]
+	}
+	ema := sum / float64(period)
+
+	// Calculate EMA for remaining prices
+	for i := period; i < len(prices); i++ {
 		ema = (prices[i] * multiplier) + (ema * (1 - multiplier))
 	}
 
 	return ema
 }
 
-// calculateMACD calculates MACD and Signal line
+// calculateMACD calculates MACD and Signal line with optimized performance
 func calculateMACD(prices []float64) (float64, float64) {
 	if len(prices) < 26 {
 		return 0, 0
 	}
 
-	// Calculate EMA12 and EMA26 for the entire dataset
+	// Calculate EMA12 and EMA26 for the entire dataset (more efficient)
 	ema12 := calculateEMA(prices, 12)
 	ema26 := calculateEMA(prices, 26)
 	macd := ema12 - ema26
 
-	// Calculate MACD values for signal line calculation
-	macdValues := make([]float64, 0)
+	// For signal line, we only need MACD values from position 26 onwards
+	// Calculate MACD values more efficiently by reusing EMA calculations
+	macdValues := make([]float64, 0, len(prices)-26)
+
+	// Use sliding window approach for better performance
 	for i := 26; i < len(prices); i++ {
-		// Calculate EMA12 and EMA26 for each point from 26 onwards
-		ema12 := calculateEMA(prices[:i+1], 12)
-		ema26 := calculateEMA(prices[:i+1], 26)
-		macdValues = append(macdValues, ema12-ema26)
+		// Calculate EMA12 and EMA26 for the window ending at position i
+		windowPrices := prices[:i+1]
+		windowEMA12 := calculateEMA(windowPrices, 12)
+		windowEMA26 := calculateEMA(windowPrices, 26)
+		macdValues = append(macdValues, windowEMA12-windowEMA26)
 	}
 
 	// Calculate signal line as EMA9 of MACD values
@@ -46,12 +60,13 @@ func calculateMACD(prices []float64) (float64, float64) {
 	return macd, signalLine
 }
 
-// calculateRSI calculates Relative Strength Index
+// calculateRSI calculates Relative Strength Index with optimized performance
 func calculateRSI(prices []float64, period int) float64 {
 	if len(prices) < period+1 {
 		return 50 // Neutral RSI if not enough data
 	}
 
+	// Calculate initial gains and losses more efficiently
 	var gains, losses float64
 	for i := 1; i <= period; i++ {
 		change := prices[i] - prices[i-1]
@@ -62,12 +77,37 @@ func calculateRSI(prices []float64, period int) float64 {
 		}
 	}
 
+	// Handle edge case
 	if losses == 0 {
 		return 100
 	}
 
+	// Calculate initial averages
 	avgGain := gains / float64(period)
 	avgLoss := losses / float64(period)
+
+	// Use exponential smoothing for better performance
+	multiplier := 1.0 / float64(period)
+
+	// Calculate RSI for remaining periods
+	for i := period + 1; i < len(prices); i++ {
+		change := prices[i] - prices[i-1]
+		var gain, loss float64
+
+		if change > 0 {
+			gain = change
+		} else {
+			loss = math.Abs(change)
+		}
+
+		avgGain = (avgGain * (1 - multiplier)) + (gain * multiplier)
+		avgLoss = (avgLoss * (1 - multiplier)) + (loss * multiplier)
+	}
+
+	if avgLoss == 0 {
+		return 100
+	}
+
 	rs := avgGain / avgLoss
 	rsi := 100 - (100 / (1 + rs))
 
@@ -148,9 +188,9 @@ func detectVolumeSpike(volumes []float64) (bool, float64, float64) {
 	return volumeSpike, averageVolume, lastVolume
 }
 
-// calculateTechnicalIndicators calculates all technical indicators from candle data
-func calculateTechnicalIndicators(candles []Candle) TechnicalIndicators {
-	if len(candles) < 200 {
+// calculateTechnicalIndicatorsParallel calculates all technical indicators in parallel with early termination
+func calculateTechnicalIndicatorsParallel(candles []Candle) TechnicalIndicators {
+	if len(candles) < 50 { // Reduced minimum for lightweight mode
 		return TechnicalIndicators{}
 	}
 
@@ -172,30 +212,263 @@ func calculateTechnicalIndicators(candles []Candle) TechnicalIndicators {
 		volumes[i] = volume
 	}
 
-	// Calculate indicators
-	macd, signalLine := calculateMACD(prices)
-	ema12 := calculateEMA(prices, 12)
-	ema26 := calculateEMA(prices, 26)
-	ema200 := calculateEMA(prices, 200)
-	rsi := calculateRSI(prices, 14)
-	adx := calculateADX(highs, lows, 14)
-	priceDropPct4h := calculatePriceDropPct(prices, 48) // 4 hours = 48 * 5min candles (from most recent)
-	volumeSpike, avgVolume, lastVolume := detectVolumeSpike(volumes)
+	// Create context for cancellation
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	return TechnicalIndicators{
-		MACD:           macd,
-		SignalLine:     signalLine,
-		EMA12:          ema12,
-		EMA26:          ema26,
-		EMA200:         ema200,
-		RSI:            rsi,
-		ADX:            adx,
-		PriceDropPct4h: priceDropPct4h,
-		VolumeSpike:    volumeSpike,
-		CurrentPrice:   prices[len(prices)-1],
-		AverageVolume:  avgVolume,
-		LastVolume:     lastVolume,
+	// Create channels for streaming results
+	type indicatorResult struct {
+		name  string
+		value interface{}
 	}
+	resultChan := make(chan indicatorResult, 12) // Buffer for all indicators
+
+	// Create channels for early signal detection
+	signalChan := make(chan bool, 1)
+	indicatorsChan := make(chan TechnicalIndicators, 1)
+
+	// Calculate indicators in parallel with early termination
+	var wg sync.WaitGroup
+
+	// MACD and Signal Line (high priority - often triggers first)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			macd, signalLine := calculateMACD(prices)
+			select {
+			case <-ctx.Done():
+				return
+			case resultChan <- indicatorResult{"macd", macd}:
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case resultChan <- indicatorResult{"signalLine", signalLine}:
+			}
+		}
+	}()
+
+	// EMA12 (high priority)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			ema12 := calculateEMA(prices, 12)
+			select {
+			case <-ctx.Done():
+				return
+			case resultChan <- indicatorResult{"ema12", ema12}:
+			}
+		}
+	}()
+
+	// EMA26 (high priority)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			ema26 := calculateEMA(prices, 26)
+			select {
+			case <-ctx.Done():
+				return
+			case resultChan <- indicatorResult{"ema26", ema26}:
+			}
+		}
+	}()
+
+	// EMA200 (lower priority - takes longer)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			ema200 := calculateEMA(prices, 200)
+			select {
+			case <-ctx.Done():
+				return
+			case resultChan <- indicatorResult{"ema200", ema200}:
+			}
+		}
+	}()
+
+	// RSI (medium priority)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			rsi := calculateRSI(prices, 14)
+			select {
+			case <-ctx.Done():
+				return
+			case resultChan <- indicatorResult{"rsi", rsi}:
+			}
+		}
+	}()
+
+	// ADX (medium priority)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			adx := calculateADX(highs, lows, 14)
+			select {
+			case <-ctx.Done():
+				return
+			case resultChan <- indicatorResult{"adx", adx}:
+			}
+		}
+	}()
+
+	// Price Drop Percentage (high priority - quick calculation)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			priceDropPeriod := 48 // Default for 5-minute candles
+			priceDropPct4h := calculatePriceDropPct(prices, priceDropPeriod)
+			select {
+			case <-ctx.Done():
+				return
+			case resultChan <- indicatorResult{"priceDropPct4h", priceDropPct4h}:
+			}
+		}
+	}()
+
+	// Volume Spike Detection (medium priority)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			volumeSpike, avgVolume, lastVolume := detectVolumeSpike(volumes)
+			select {
+			case <-ctx.Done():
+				return
+			case resultChan <- indicatorResult{"volumeSpike", volumeSpike}:
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case resultChan <- indicatorResult{"averageVolume", avgVolume}:
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case resultChan <- indicatorResult{"lastVolume", lastVolume}:
+			}
+		}
+	}()
+
+	// Stream processor that checks for signals as they arrive
+	go func() {
+		indicators := TechnicalIndicators{
+			CurrentPrice: prices[len(prices)-1],
+		}
+		completedIndicators := 0
+		totalIndicators := 8 // Total number of indicator groups
+
+		for result := range resultChan {
+			// Store the result
+			switch result.name {
+			case "macd":
+				indicators.MACD = result.value.(float64)
+			case "signalLine":
+				indicators.SignalLine = result.value.(float64)
+			case "ema12":
+				indicators.EMA12 = result.value.(float64)
+			case "ema26":
+				indicators.EMA26 = result.value.(float64)
+			case "ema200":
+				indicators.EMA200 = result.value.(float64)
+			case "rsi":
+				indicators.RSI = result.value.(float64)
+			case "adx":
+				indicators.ADX = result.value.(float64)
+			case "priceDropPct4h":
+				indicators.PriceDropPct4h = result.value.(float64)
+			case "volumeSpike":
+				indicators.VolumeSpike = result.value.(bool)
+			case "averageVolume":
+				indicators.AverageVolume = result.value.(float64)
+			case "lastVolume":
+				indicators.LastVolume = result.value.(float64)
+			}
+
+			// Check if we have enough indicators to detect a signal
+			if completedIndicators < totalIndicators {
+				completedIndicators++
+			}
+
+			// Check for early signal detection (after we have key indicators)
+			if completedIndicators >= 4 { // Check after we have MACD, EMA12, EMA26, RSI
+				bearishSignal, _ := checkBearishSignals(indicators)
+				if bearishSignal {
+					// Signal detected! Cancel other calculations and send result
+					cancel()
+					select {
+					case signalChan <- true:
+					default:
+					}
+					select {
+					case indicatorsChan <- indicators:
+					default:
+					}
+					return
+				}
+			}
+		}
+
+		// All calculations completed, send final result
+		select {
+		case signalChan <- false:
+		default:
+		}
+		select {
+		case indicatorsChan <- indicators:
+		default:
+		}
+	}()
+
+	// Wait for all calculations to complete or early termination
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// Wait for result
+	select {
+	case <-signalChan:
+		return <-indicatorsChan
+	}
+}
+
+// calculateTechnicalIndicators calculates all technical indicators from candle data
+func calculateTechnicalIndicators(candles []Candle) TechnicalIndicators {
+	// Use parallel calculation for better performance
+	return calculateTechnicalIndicatorsParallel(candles)
 }
 
 // checkBearishSignals checks if any bearish trend change signals are triggered

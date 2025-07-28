@@ -496,16 +496,18 @@ func (c *CoinbaseClient) GetOrderBook(limit int) (*OrderBook, error) {
 
 // GetSignal calculates technical indicators and checks for bearish signals
 func (c *CoinbaseClient) GetSignal() (*SignalResponse, error) {
+	return c.GetSignalWithCandles(300, "FIVE_MINUTE")
+}
 
+// GetSignalWithCandles allows customizing candle count and granularity for different use cases
+func (c *CoinbaseClient) GetSignalWithCandles(candleCount int, granularity string) (*SignalResponse, error) {
 	// Only log in debug mode for performance
 	if os.Getenv("LOG_LEVEL") == "DEBUG" {
-		c.logger.Printf("Fetching signal data for %s...", c.tradingPair)
+		c.logger.Printf("Fetching signal data for %s (%d %s candles)...", c.tradingPair, candleCount, granularity)
 	}
 
-	// Get 5-minute candles for comprehensive technical analysis
-	// Using 300 candles (25 hours = ~1 day) for better indicator accuracy
-	// This provides enough data for EMA200, MACD, and other indicators
-	candles, err := c.GetCandles("", "", "FIVE_MINUTE", 300)
+	// Get candles for technical analysis
+	candles, err := c.GetCandles("", "", granularity, candleCount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch candles: %w", err)
 	}
@@ -539,6 +541,13 @@ func (c *CoinbaseClient) GetSignal() (*SignalResponse, error) {
 	}
 
 	return response, nil
+}
+
+// GetSignalLightweight is optimized for background polling - uses 5-minute candles with fewer data points
+func (c *CoinbaseClient) GetSignalLightweight() (*SignalResponse, error) {
+	// Use 5-minute candles with fewer data points for lightweight polling
+	// 144 candles = 12 hours of data (sufficient for most indicators, more responsive)
+	return c.GetSignalWithCandles(144, "FIVE_MINUTE")
 }
 
 // GetMarketState retrieves comprehensive market state information

@@ -306,9 +306,9 @@ func startSignalPolling(client *client.CoinbaseClient, webhookURL string) {
 
 // checkSignal performs a single signal check and logs the result
 func checkSignal(client *client.CoinbaseClient) {
-	log.Printf("🔍 Checking for trading signals...")
+	log.Printf("🔍 Checking for trading signals (lightweight mode)...")
 
-	signal, err := client.GetSignal()
+	signal, err := client.GetSignalLightweight()
 	if err != nil {
 		log.Printf("❌ Signal check failed: %v", err)
 		return
