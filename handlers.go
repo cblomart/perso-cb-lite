@@ -49,6 +49,35 @@ func (h *Handlers) BuyBTC(c *gin.Context) {
 		return
 	}
 
+	// Handle percentage-based order size calculation
+	if req.Percentage > 0 {
+		// Determine which price to use for percentage calculation
+		priceForPercentage := req.Price
+		if req.StopPrice != "" && req.LimitPrice != "" {
+			// For stop-limit orders, use limit_price for percentage calculation
+			priceForPercentage = req.LimitPrice
+		}
+
+		if priceForPercentage == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Missing price for percentage calculation",
+				"message": "Price or limit_price is required when using percentage",
+			})
+			return
+		}
+
+		calculatedSize, err := h.client.CalculateOrderSizeByPercentage("BUY", req.Percentage, priceForPercentage)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Failed to calculate order size by percentage",
+				"message": err.Error(),
+			})
+			return
+		}
+
+		req.Size = calculatedSize
+	}
+
 	// Validate size
 	if _, err := strconv.ParseFloat(req.Size, 64); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -156,6 +185,21 @@ func (h *Handlers) SellBTC(c *gin.Context) {
 			"message": err.Error(),
 		})
 		return
+	}
+
+	// Handle percentage-based order size calculation
+	if req.Percentage > 0 {
+		// For SELL orders, we don't need price for percentage calculation (we sell percentage of available BTC)
+		calculatedSize, err := h.client.CalculateOrderSizeByPercentage("SELL", req.Percentage, "0") // Price not used for SELL percentage calculation
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Failed to calculate order size by percentage",
+				"message": err.Error(),
+			})
+			return
+		}
+
+		req.Size = calculatedSize
 	}
 
 	// Validate size

@@ -61,7 +61,71 @@ type OrdersResponse struct {
 	Orders []CoinbaseOrder `json:"orders"`
 }
 
-// checkBalance validates if there are sufficient funds for the order
+// CalculateOrderSizeByPercentage calculates the order size based on a percentage of available balance
+// Includes 1% fee buffer to ensure the order can be placed successfully
+func (c *CoinbaseClient) CalculateOrderSizeByPercentage(side string, percentage float64, price string) (string, error) {
+	// Validate percentage
+	if percentage <= 0 || percentage > 100 {
+		return "", fmt.Errorf("percentage must be between 0 and 100")
+	}
+
+	accounts, err := c.GetAccounts()
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch accounts: %w", err)
+	}
+
+	var availableBalance float64
+	var currency string
+
+	if side == "BUY" {
+		// For BUY orders, we need quote currency (e.g., USDC)
+		currency = strings.Split(c.tradingPair, "-")[1] // Quote currency
+	} else {
+		// For SELL orders, we need base currency (e.g., BTC)
+		currency = strings.Split(c.tradingPair, "-")[0] // Base currency
+	}
+
+	// Find the required currency account
+	for _, account := range accounts {
+		if account.Currency == currency {
+			availableBalance, _ = strconv.ParseFloat(account.AvailableBalance, 64)
+			break
+		}
+	}
+
+	if availableBalance <= 0 {
+		return "", fmt.Errorf("no available %s balance", currency)
+	}
+
+	// Calculate the amount to use based on percentage, with 1% fee buffer
+	// We reduce the percentage by 1% to account for Coinbase fees
+	effectivePercentage := percentage * 0.99 // 1% fee buffer
+	amountToUse := availableBalance * (effectivePercentage / 100.0)
+
+	var orderSize float64
+	if side == "BUY" {
+		// For BUY orders: order_size = (available_quote_currency * effective_percentage) / price
+		priceFloat, err := strconv.ParseFloat(price, 64)
+		if err != nil {
+			return "", fmt.Errorf("invalid price format: %w", err)
+		}
+		if priceFloat <= 0 {
+			return "", fmt.Errorf("price must be greater than 0")
+		}
+		orderSize = amountToUse / priceFloat
+	} else {
+		// For SELL orders: order_size = available_base_currency * effective_percentage
+		orderSize = amountToUse
+	}
+
+	// Log the calculation for transparency
+	c.logger.Printf("Percentage calculation: %.2f%% requested, %.2f%% effective (with 1%% fee buffer), amount: %.8f %s",
+		percentage, effectivePercentage, amountToUse, currency)
+
+	// Format to 8 decimal places (standard for crypto)
+	return fmt.Sprintf("%.8f", orderSize), nil
+}
+
 func (c *CoinbaseClient) checkBalance(side, size, price string) error {
 	accounts, err := c.GetAccounts()
 	if err != nil {
