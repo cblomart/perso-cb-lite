@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // CoinbaseOrder represents the raw order response from Coinbase API
@@ -32,6 +34,7 @@ type CoinbaseOrder struct {
 type CoinbaseCreateOrderRequest struct {
 	ProductID          string `json:"product_id"`
 	Side               string `json:"side"`
+	ClientOrderID      string `json:"client_order_id"`
 	OrderConfiguration struct {
 		LimitLimitGtc *struct {
 			BaseSize   string `json:"base_size"`
@@ -173,9 +176,13 @@ func (c *CoinbaseClient) createOrder(side, size string, price float64) (*Order, 
 		return nil, fmt.Errorf("balance check failed: %w", err)
 	}
 
+	// Generate a unique client order ID
+	clientOrderID := uuid.New().String()
+
 	orderReq := CoinbaseCreateOrderRequest{
-		ProductID: c.tradingPair,
-		Side:      side,
+		ProductID:     c.tradingPair,
+		Side:          side,
+		ClientOrderID: clientOrderID,
 	}
 
 	// Configure market order
@@ -223,14 +230,15 @@ func (c *CoinbaseClient) createOrder(side, size string, price float64) (*Order, 
 
 	// Create order response
 	order := &Order{
-		ID:        resp.OrderID,
-		ProductID: c.tradingPair,
-		Side:      side,
-		Type:      "MARKET",
-		Size:      size,
-		Price:     fmt.Sprintf("%.8f", price),
-		Status:    "PENDING",
-		CreatedAt: time.Now(),
+		ID:            resp.OrderID,
+		ClientOrderID: clientOrderID,
+		ProductID:     c.tradingPair,
+		Side:          side,
+		Type:          "MARKET",
+		Size:          size,
+		Price:         fmt.Sprintf("%.8f", price),
+		Status:        "PENDING",
+		CreatedAt:     time.Now(),
 	}
 
 	// Only log in debug mode for performance
