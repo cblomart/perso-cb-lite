@@ -714,8 +714,30 @@ func (c *CoinbaseClient) GetGraphData(period string) (*GraphData, error) {
 
 	// Log successful graph data fetch in debug mode
 	if os.Getenv("LOG_LEVEL") == "DEBUG" {
-		c.logger.Printf("Successfully generated graph data: %d candles with indicators",
-			len(candles))
+		c.logger.Printf("Successfully generated graph data: %d candles with indicators", len(candles))
+		if len(candles) > 0 {
+			firstCandle := candles[0]
+			lastCandle := candles[len(candles)-1]
+
+			// Parse timestamps for logging
+			var firstTime, lastTime time.Time
+			if t, err := time.Parse(time.RFC3339, firstCandle.Start); err == nil {
+				firstTime = t
+			} else if unixTime, parseErr := strconv.ParseInt(firstCandle.Start, 10, 64); parseErr == nil {
+				firstTime = time.Unix(unixTime, 0)
+			}
+
+			if t, err := time.Parse(time.RFC3339, lastCandle.Start); err == nil {
+				lastTime = t
+			} else if unixTime, parseErr := strconv.ParseInt(lastCandle.Start, 10, 64); parseErr == nil {
+				lastTime = time.Unix(unixTime, 0)
+			}
+
+			c.logger.Printf("Time range: %s to %s",
+				firstTime.Format("2006-01-02 15:04:05"),
+				lastTime.Format("2006-01-02 15:04:05"))
+			c.logger.Printf("Price range: $%s to $%s", firstCandle.Close, lastCandle.Close)
+		}
 	}
 
 	return graphData, nil
