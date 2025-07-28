@@ -117,10 +117,10 @@ func (h *Handlers) BuyBTC(c *gin.Context) {
 		}
 
 		// Validate stop price logic for BUY orders
-		if req.StopPrice <= req.LimitPrice {
+		if req.LimitPrice <= req.StopPrice {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Invalid stop price for BUY order",
-				"message": "For BUY orders, stop price must be HIGHER than limit price (buy when price goes up)",
+				"message": "For BUY orders, limit price must be HIGHER than stop price (buy at higher limit when price rises above stop)",
 			})
 			return
 		}
@@ -214,10 +214,10 @@ func (h *Handlers) SellBTC(c *gin.Context) {
 		}
 
 		// Validate stop price logic for SELL orders
-		if req.StopPrice >= req.LimitPrice {
+		if req.StopPrice <= req.LimitPrice {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Invalid stop price for SELL order",
-				"message": "For SELL orders, stop price must be LOWER than limit price (sell when price goes down)",
+				"message": "For SELL orders, stop price must be HIGHER than limit price (sell at lower limit when price falls below stop)",
 			})
 			return
 		}
