@@ -49,7 +49,7 @@ func (h *Handlers) BuyBTC(c *gin.Context) {
 		return
 	}
 
-	// Validate size and price
+	// Validate size
 	if _, err := strconv.ParseFloat(req.Size, 64); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "Invalid size format",
@@ -58,12 +58,23 @@ func (h *Handlers) BuyBTC(c *gin.Context) {
 		return
 	}
 
-	if _, err := strconv.ParseFloat(req.Price, 64); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "Invalid price format",
-			"message": "Price must be a valid number",
-		})
-		return
+	// Validate price (required for regular limit orders, optional for stop-limit orders)
+	if req.StopPrice == "" && req.LimitPrice == "" {
+		// Regular limit order - price is required
+		if req.Price == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Missing price",
+				"message": "Price is required for regular limit orders",
+			})
+			return
+		}
+		if _, err := strconv.ParseFloat(req.Price, 64); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Invalid price format",
+				"message": "Price must be a valid number",
+			})
+			return
+		}
 	}
 
 	// Validate stop price and limit price if provided (BUY order validation)
@@ -147,7 +158,7 @@ func (h *Handlers) SellBTC(c *gin.Context) {
 		return
 	}
 
-	// Validate size and price
+	// Validate size
 	if _, err := strconv.ParseFloat(req.Size, 64); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "Invalid size format",
@@ -156,12 +167,23 @@ func (h *Handlers) SellBTC(c *gin.Context) {
 		return
 	}
 
-	if _, err := strconv.ParseFloat(req.Price, 64); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "Invalid price format",
-			"message": "Price must be a valid number",
-		})
-		return
+	// Validate price (required for regular limit orders, optional for stop-limit orders)
+	if req.StopPrice == "" && req.LimitPrice == "" {
+		// Regular limit order - price is required
+		if req.Price == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Missing price",
+				"message": "Price is required for regular limit orders",
+			})
+			return
+		}
+		if _, err := strconv.ParseFloat(req.Price, 64); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Invalid price format",
+				"message": "Price must be a valid number",
+			})
+			return
+		}
 	}
 
 	// Validate stop price and limit price if provided (SELL order validation)
