@@ -322,23 +322,20 @@ func (c *CoinbaseClient) GetCandles(start, end, granularity string, limit int) (
 }
 
 // GetOrderBook retrieves the order book for the configured trading pair
-func (c *CoinbaseClient) GetOrderBook(level int) (*OrderBook, error) {
+func (c *CoinbaseClient) GetOrderBook(limit int) (*OrderBook, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	c.logger.Printf("Fetching order book for %s (level %d)...", c.tradingPair, level)
+	c.logger.Printf("Fetching order book for %s (limit %d)...", c.tradingPair, limit)
 
-	// Coinbase API uses level 1, 2, or 3 for order book depth
-	// Level 1: Best bid/ask only
-	// Level 2: Top 50 bids and asks
-	// Level 3: Full order book (up to 5000 bids and asks)
-	if level > 3 {
-		level = 3
-	} else if level < 1 {
-		level = 1
+	// Validate limit (reasonable range for order book)
+	if limit > 100 {
+		limit = 100
+	} else if limit < 1 {
+		limit = 10
 	}
 
-	endpoint := fmt.Sprintf("/products/%s/book?level=%d", c.tradingPair, level)
+	endpoint := fmt.Sprintf("/product_book?product_id=%s&limit=%d", c.tradingPair, limit)
 
 	respBody, err := c.makeRequest(ctx, "GET", endpoint, nil)
 	if err != nil {
@@ -346,24 +343,42 @@ func (c *CoinbaseClient) GetOrderBook(level int) (*OrderBook, error) {
 		return nil, fmt.Errorf("failed to fetch order book: %w", err)
 	}
 
-	var orderBook OrderBook
-	if err := json.Unmarshal(respBody, &orderBook); err != nil {
+	// Parse the response structure from Coinbase API
+	var response struct {
+		Pricebook struct {
+			ProductID string           `json:"product_id"`
+			Bids      []OrderBookEntry `json:"bids"`
+			Asks      []OrderBookEntry `json:"asks"`
+			Time      string           `json:"time"`
+		} `json:"pricebook"`
+		Last           string `json:"last"`
+		MidMarket      string `json:"mid_market"`
+		SpreadBps      string `json:"spread_bps"`
+		SpreadAbsolute string `json:"spread_absolute"`
+	}
+
+	if err := json.Unmarshal(respBody, &response); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal order book response: %w", err)
 	}
 
+	orderBook := &OrderBook{
+		Bids: response.Pricebook.Bids,
+		Asks: response.Pricebook.Asks,
+	}
+
 	c.logger.Printf("Successfully fetched order book with %d bids and %d asks", len(orderBook.Bids), len(orderBook.Asks))
-	return &orderBook, nil
+	return orderBook, nil
 }
 
 // GetMarketState retrieves comprehensive market state information
-func (c *CoinbaseClient) GetMarketState(depth int) (*MarketState, error) {
+func (c *CoinbaseClient) GetMarketState(limit int) (*MarketState, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	c.logger.Printf("Fetching market state for %s (depth %d)...", c.tradingPair, depth)
+	c.logger.Printf("Fetching market state for %s (limit %d)...", c.tradingPair, limit)
 
 	// Get order book
-	orderBook, err := c.GetOrderBook(depth)
+	orderBook, err := c.GetOrderBook(limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get order book: %w", err)
 	}
