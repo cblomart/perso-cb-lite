@@ -2,18 +2,13 @@ package client
 
 import (
 	"bytes"
-	"context"
-	"encoding/json"
 	"fmt"
-	"html/template"
 	"image/color"
 	"image/png"
-	"os"
 	"sort"
 	"strconv"
 	"time"
 
-	"github.com/chromedp/chromedp"
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/plotter"
 	"gonum.org/v1/plot/vg"
@@ -21,7 +16,7 @@ import (
 	"gonum.org/v1/plot/vg/vgimg"
 )
 
-// GenerateChartPNG creates a PNG chart using Plotly with proper dual Y-axes
+// GenerateChartPNG creates a sleek PNG chart with dual Y-axis effect using gonum/plot
 func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) {
 	// Validate input data
 	if len(graphData.Candles) == 0 {
@@ -41,278 +36,7 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 		return time.Time{}, fmt.Errorf("unable to parse timestamp: %s", timeStr)
 	}
 
-	// Prepare candlestick data for Plotly
-	var candlestickData []map[string]interface{}
-	for _, candle := range graphData.Candles {
-		timestamp, err := parseTimestamp(candle.Start)
-		if err != nil {
-			continue
-		}
-
-		openPrice, _ := strconv.ParseFloat(candle.Open, 64)
-		highPrice, _ := strconv.ParseFloat(candle.High, 64)
-		lowPrice, _ := strconv.ParseFloat(candle.Low, 64)
-		closePrice, _ := strconv.ParseFloat(candle.Close, 64)
-
-		if openPrice > 0 && highPrice > 0 && lowPrice > 0 && closePrice > 0 {
-			candlestickData = append(candlestickData, map[string]interface{}{
-				"x":     timestamp.Format("2006-01-02T15:04:05Z07:00"),
-				"open":  openPrice,
-				"high":  highPrice,
-				"low":   lowPrice,
-				"close": closePrice,
-			})
-		}
-	}
-
-	// Prepare asset value data
-	var assetData []map[string]interface{}
-	if len(graphData.AccountValues) > 0 {
-		for _, av := range graphData.AccountValues {
-			timestamp := time.Unix(av.Timestamp, 0)
-			assetData = append(assetData, map[string]interface{}{
-				"x": timestamp.Format("2006-01-02T15:04:05Z07:00"),
-				"y": av.TotalUSD,
-			})
-		}
-	}
-
-	// Prepare trade data
-	var buyTrades, sellTrades []map[string]interface{}
-	if len(graphData.Trades) > 0 {
-		for _, trade := range graphData.Trades {
-			timestamp := time.Unix(trade.ExecutedAt, 0)
-			price, _ := strconv.ParseFloat(trade.Price, 64)
-
-			tradePoint := map[string]interface{}{
-				"x": timestamp.Format("2006-01-02T15:04:05Z07:00"),
-				"y": price,
-			}
-
-			if trade.Side == "BUY" {
-				buyTrades = append(buyTrades, tradePoint)
-			} else {
-				sellTrades = append(sellTrades, tradePoint)
-			}
-		}
-	}
-
-	// Create Plotly HTML template
-	htmlTemplate := `
-<!DOCTYPE html>
-<html>
-<head>
-    <title>BTC-USDC Trading Chart</title>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-    <style>
-        body { margin: 0; padding: 20px; background: white; font-family: Arial, sans-serif; }
-        .chart-container { width: 1200px; height: 800px; margin: 0 auto; }
-        .title { text-align: center; margin-bottom: 20px; font-size: 18px; font-weight: bold; }
-    </style>
-</head>
-<body>
-    <div class="title">{{.Title}}</div>
-    <div class="chart-container" id="chart"></div>
-    <script>
-        const candlestickData = {{.CandlestickData}};
-        const assetData = {{.AssetData}};
-        const buyTrades = {{.BuyTrades}};
-        const sellTrades = {{.SellTrades}};
-
-        // Prepare traces
-        const traces = [];
-
-        // Candlestick trace
-        if (candlestickData.length > 0) {
-            traces.push({
-                x: candlestickData.map(d => d.x),
-                open: candlestickData.map(d => d.open),
-                high: candlestickData.map(d => d.high),
-                low: candlestickData.map(d => d.low),
-                close: candlestickData.map(d => d.close),
-                type: 'candlestick',
-                name: 'BTC Price',
-                yaxis: 'y',
-                increasing: {line: {color: '#00ff00'}, fillcolor: '#00ff00'},
-                decreasing: {line: {color: '#ff0000'}, fillcolor: '#ff0000'},
-            });
-        }
-
-        // Asset value trace
-        if (assetData.length > 0) {
-            traces.push({
-                x: assetData.map(d => d.x),
-                y: assetData.map(d => d.y),
-                type: 'scatter',
-                mode: 'lines',
-                name: 'Asset Value',
-                yaxis: 'y2',
-                line: {
-                    color: '#800080',
-                    dash: 'dash',
-                    width: 2
-                },
-                fill: 'none'
-            });
-        }
-
-        // Buy trades
-        if (buyTrades.length > 0) {
-            traces.push({
-                x: buyTrades.map(d => d.x),
-                y: buyTrades.map(d => d.y),
-                type: 'scatter',
-                mode: 'markers',
-                name: 'Buy Trades',
-                yaxis: 'y',
-                marker: {
-                    color: '#00ff00',
-                    symbol: 'triangle-up',
-                    size: 10
-                }
-            });
-        }
-
-        // Sell trades
-        if (sellTrades.length > 0) {
-            traces.push({
-                x: sellTrades.map(d => d.x),
-                y: sellTrades.map(d => d.y),
-                type: 'scatter',
-                mode: 'markers',
-                name: 'Sell Trades',
-                yaxis: 'y',
-                marker: {
-                    color: '#ff0000',
-                    symbol: 'triangle-down',
-                    size: 10
-                }
-            });
-        }
-
-        const layout = {
-            title: '{{.Title}}',
-            width: 1200,
-            height: 800,
-            xaxis: {
-                title: 'Time',
-                type: 'date'
-            },
-            yaxis: {
-                title: 'BTC Price (USD)',
-                side: 'left',
-                showgrid: true
-            },
-            yaxis2: {
-                title: 'Asset Value (USD)',
-                side: 'right',
-                overlaying: 'y',
-                showgrid: false
-            },
-            legend: {
-                x: 0,
-                y: 1
-            },
-            margin: {
-                l: 80,
-                r: 80,
-                t: 80,
-                b: 80
-            }
-        };
-
-        const config = {
-            responsive: true,
-            displayModeBar: false
-        };
-
-        Plotly.newPlot('chart', traces, layout, config);
-    </script>
-</body>
-</html>`
-
-	// Prepare template data
-	title := fmt.Sprintf("BTC-USDC Trading Chart (%s)", graphData.Period)
-	if len(graphData.AccountValues) > 0 {
-		firstValue := graphData.AccountValues[0].TotalUSD
-		lastValue := graphData.AccountValues[len(graphData.AccountValues)-1].TotalUSD
-		valueChange := lastValue - firstValue
-		valueChangePct := (valueChange / firstValue) * 100
-		title = fmt.Sprintf("BTC-USDC Trading Chart (%s) - Asset Value: $%.2f → $%.2f (%.1f%%)",
-			graphData.Period, firstValue, lastValue, valueChangePct)
-	}
-
-	// Convert data to JSON strings
-	candlestickJSON, _ := json.Marshal(candlestickData)
-	assetJSON, _ := json.Marshal(assetData)
-	buyTradesJSON, _ := json.Marshal(buyTrades)
-	sellTradesJSON, _ := json.Marshal(sellTrades)
-
-	// Create template data
-	templateData := map[string]interface{}{
-		"Title":           title,
-		"CandlestickData": string(candlestickJSON),
-		"AssetData":       string(assetJSON),
-		"BuyTrades":       string(buyTradesJSON),
-		"SellTrades":      string(sellTradesJSON),
-	}
-
-	// Parse and execute template
-	tmpl, err := template.New("chart").Parse(htmlTemplate)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse template: %w", err)
-	}
-
-	var htmlBuffer bytes.Buffer
-	err = tmpl.Execute(&htmlBuffer, templateData)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute template: %w", err)
-	}
-
-	// Convert HTML to PNG using Chromedp
-	ctx, cancel := chromedp.NewContext(context.Background())
-	defer cancel()
-
-	// Set timeout
-	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	var pngData []byte
-	err = chromedp.Run(ctx,
-		chromedp.Navigate("data:text/html;base64,"+fmt.Sprintf("%x", htmlBuffer.Bytes())),
-		chromedp.WaitReady("chart"),
-		chromedp.Sleep(2*time.Second), // Wait for chart to render
-		chromedp.CaptureScreenshot(&pngData),
-	)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate PNG: %w", err)
-	}
-
-	return pngData, nil
-}
-
-// GenerateDualAxisChartPNG creates a PNG chart with proper dual Y-axes
-func (c *CoinbaseClient) GenerateDualAxisChartPNG(graphData *GraphData) ([]byte, error) {
-	// Validate input data
-	if len(graphData.Candles) == 0 {
-		return nil, fmt.Errorf("no candle data available")
-	}
-
-	// Helper function to parse timestamps consistently
-	parseTimestamp := func(timeStr string) (time.Time, error) {
-		// Try RFC3339 first
-		if t, err := time.Parse(time.RFC3339, timeStr); err == nil {
-			return t, nil
-		}
-		// Try Unix timestamp
-		if unixTime, err := strconv.ParseInt(timeStr, 10, 64); err == nil {
-			return time.Unix(unixTime, 0), nil
-		}
-		return time.Time{}, fmt.Errorf("unable to parse timestamp: %s", timeStr)
-	}
-
-	// Create a single plot
+	// Create a new plot
 	p := plot.New()
 	p.Title.Text = fmt.Sprintf("BTC-USDC Trading Chart (%s)", graphData.Period)
 	p.X.Label.Text = "Time"
@@ -326,22 +50,10 @@ func (c *CoinbaseClient) GenerateDualAxisChartPNG(graphData *GraphData) ([]byte,
 			continue
 		}
 
-		openPrice, err := strconv.ParseFloat(candle.Open, 64)
-		if err != nil {
-			continue
-		}
-		highPrice, err := strconv.ParseFloat(candle.High, 64)
-		if err != nil {
-			continue
-		}
-		lowPrice, err := strconv.ParseFloat(candle.Low, 64)
-		if err != nil {
-			continue
-		}
-		closePrice, err := strconv.ParseFloat(candle.Close, 64)
-		if err != nil {
-			continue
-		}
+		openPrice, _ := strconv.ParseFloat(candle.Open, 64)
+		highPrice, _ := strconv.ParseFloat(candle.High, 64)
+		lowPrice, _ := strconv.ParseFloat(candle.Low, 64)
+		closePrice, _ := strconv.ParseFloat(candle.Close, 64)
 
 		if openPrice > 0 && highPrice > 0 && lowPrice > 0 && closePrice > 0 {
 			candles = append(candles, plotter.XY{
@@ -360,7 +72,7 @@ func (c *CoinbaseClient) GenerateDualAxisChartPNG(graphData *GraphData) ([]byte,
 		return candles[i].X < candles[j].X
 	})
 
-	// Find price range for scaling
+	// Calculate price range for scaling
 	var minPrice, maxPrice float64
 	if len(candles) > 0 {
 		minPrice = candles[0].Y
@@ -375,11 +87,16 @@ func (c *CoinbaseClient) GenerateDualAxisChartPNG(graphData *GraphData) ([]byte,
 		}
 	}
 
-	// Find asset value range
-	var minAsset, maxAsset float64
+	// Calculate asset value range and scaling
+	var assetScaleFactor float64
+	var assetOffset float64
+	var assetData plotter.XYs
+
 	if len(graphData.AccountValues) > 0 {
+		var minAsset, maxAsset float64
 		minAsset = graphData.AccountValues[0].TotalUSD
 		maxAsset = graphData.AccountValues[0].TotalUSD
+
 		for _, av := range graphData.AccountValues {
 			if av.TotalUSD < minAsset {
 				minAsset = av.TotalUSD
@@ -388,25 +105,26 @@ func (c *CoinbaseClient) GenerateDualAxisChartPNG(graphData *GraphData) ([]byte,
 				maxAsset = av.TotalUSD
 			}
 		}
-	}
 
-	// Calculate scaling factors for dual Y-axis
-	priceRange := maxPrice - minPrice
-	assetRange := maxAsset - minAsset
+		// Scale asset values to fit in the upper portion of the price range
+		priceRange := maxPrice - minPrice
+		assetRange := maxAsset - minAsset
 
-	// Scale asset values to be on the same Y-axis as prices
-	// We'll use a transformation that maps asset values to a different scale
-	var assetScaleFactor float64
-	var assetOffset float64
+		if assetRange > 0 {
+			// Use 25% of the price range for asset values
+			assetScaleFactor = (priceRange * 0.25) / assetRange
+			assetOffset = maxPrice * 0.75 // Position in upper 25%
+		} else {
+			assetScaleFactor = 1.0
+			assetOffset = maxPrice * 0.8
+		}
 
-	if assetRange > 0 {
-		// Scale asset values to be in the upper portion of the price range
-		// This creates a visual separation while keeping them on the same axis
-		assetScaleFactor = (priceRange * 0.3) / assetRange // Use 30% of price range
-		assetOffset = maxPrice * 0.7                       // Position in upper 30% of chart
-	} else {
-		assetScaleFactor = 1.0
-		assetOffset = maxPrice * 0.8
+		// Create scaled asset data
+		assetData = make(plotter.XYs, len(graphData.AccountValues))
+		for i, av := range graphData.AccountValues {
+			assetData[i].X = float64(av.Timestamp)
+			assetData[i].Y = (av.TotalUSD * assetScaleFactor) + assetOffset
+		}
 	}
 
 	// Add candlesticks
@@ -423,7 +141,7 @@ func (c *CoinbaseClient) GenerateDualAxisChartPNG(graphData *GraphData) ([]byte,
 
 		isBullish := closePrice > openPrice
 
-		// Wick line
+		// Wick line (high to low)
 		wickData := plotter.XYs{
 			{X: float64(timestamp.Unix()), Y: highPrice},
 			{X: float64(timestamp.Unix()), Y: lowPrice},
@@ -435,7 +153,7 @@ func (c *CoinbaseClient) GenerateDualAxisChartPNG(graphData *GraphData) ([]byte,
 			p.Add(wickLine)
 		}
 
-		// Body line
+		// Body line (open to close)
 		bodyData := plotter.XYs{
 			{X: float64(timestamp.Unix()) - 0.3, Y: openPrice},
 			{X: float64(timestamp.Unix()) + 0.3, Y: closePrice},
@@ -452,7 +170,7 @@ func (c *CoinbaseClient) GenerateDualAxisChartPNG(graphData *GraphData) ([]byte,
 		}
 	}
 
-	// Add price line
+	// Add price line (semi-transparent)
 	priceLine, err := plotter.NewLine(candles)
 	if err == nil {
 		priceLine.Color = color.RGBA{R: 0, G: 0, B: 255, A: 100}
@@ -460,7 +178,7 @@ func (c *CoinbaseClient) GenerateDualAxisChartPNG(graphData *GraphData) ([]byte,
 		p.Add(priceLine)
 	}
 
-	// Add EMAs
+	// Add EMAs if available
 	if len(graphData.Indicators.EMA12) > 0 && len(graphData.Indicators.EMA12) == len(graphData.Candles) {
 		ema12Data := make(plotter.XYs, 0, len(candles))
 		for i, candle := range graphData.Candles {
@@ -551,15 +269,8 @@ func (c *CoinbaseClient) GenerateDualAxisChartPNG(graphData *GraphData) ([]byte,
 		}
 	}
 
-	// Add scaled asset values (dual Y-axis effect)
-	if len(graphData.AccountValues) > 0 {
-		assetData := make(plotter.XYs, len(graphData.AccountValues))
-		for i, accountValue := range graphData.AccountValues {
-			assetData[i].X = float64(accountValue.Timestamp)
-			// Scale asset value to be visible on the same axis
-			assetData[i].Y = (accountValue.TotalUSD * assetScaleFactor) + assetOffset
-		}
-
+	// Add scaled asset value line (dual Y-axis effect)
+	if len(assetData) > 0 {
 		assetLine, err := plotter.NewLine(assetData)
 		if err == nil {
 			assetLine.Color = color.RGBA{R: 128, G: 0, B: 128, A: 255}
@@ -567,29 +278,17 @@ func (c *CoinbaseClient) GenerateDualAxisChartPNG(graphData *GraphData) ([]byte,
 			assetLine.Dashes = []vg.Length{vg.Points(5), vg.Points(5)}
 			p.Add(assetLine)
 		}
-
-		// Debug logging for asset values
-		if os.Getenv("LOG_LEVEL") == "DEBUG" {
-			fmt.Printf("Asset plot: %d data points, original range: $%.2f - $%.2f, scaled range: %.2f - %.2f\n",
-				len(assetData),
-				graphData.AccountValues[0].TotalUSD,
-				graphData.AccountValues[len(graphData.AccountValues)-1].TotalUSD,
-				assetData[0].Y,
-				assetData[len(assetData)-1].Y)
-		}
-	} else {
-		// Debug logging when no asset values
-		if os.Getenv("LOG_LEVEL") == "DEBUG" {
-			fmt.Printf("Asset plot: No asset values available\n")
-		}
 	}
 
-	// Debug logging for price data
-	if os.Getenv("LOG_LEVEL") == "DEBUG" {
-		fmt.Printf("Price plot: %d candles, range: $%.2f - $%.2f\n",
-			len(candles),
-			candles[0].Y,
-			candles[len(candles)-1].Y)
+	// Update title with asset value information
+	if len(graphData.AccountValues) > 0 {
+		firstValue := graphData.AccountValues[0].TotalUSD
+		lastValue := graphData.AccountValues[len(graphData.AccountValues)-1].TotalUSD
+		valueChange := lastValue - firstValue
+		valueChangePct := (valueChange / firstValue) * 100
+
+		p.Title.Text = fmt.Sprintf("BTC-USDC Trading Chart (%s) - Asset Value: $%.2f → $%.2f (%.1f%%)",
+			graphData.Period, firstValue, lastValue, valueChangePct)
 	}
 
 	// Format X-axis as time
@@ -599,16 +298,19 @@ func (c *CoinbaseClient) GenerateDualAxisChartPNG(graphData *GraphData) ([]byte,
 	p.Legend.Top = true
 	p.Legend.Left = true
 	p.Legend.Add("Price", priceLine)
+
 	if len(graphData.Indicators.EMA12) > 0 {
 		ema12Line, _ := plotter.NewLine(plotter.XYs{})
 		ema12Line.Color = color.RGBA{R: 255, G: 165, B: 0, A: 255}
 		p.Legend.Add("EMA12", ema12Line)
 	}
+
 	if len(graphData.Indicators.EMA26) > 0 {
 		ema26Line, _ := plotter.NewLine(plotter.XYs{})
 		ema26Line.Color = color.RGBA{R: 255, G: 0, B: 0, A: 255}
 		p.Legend.Add("EMA26", ema26Line)
 	}
+
 	if len(graphData.Trades) > 0 {
 		buyScatter, _ := plotter.NewScatter(plotter.XYs{})
 		buyScatter.Color = color.RGBA{R: 0, G: 255, B: 0, A: 255}
@@ -620,22 +322,12 @@ func (c *CoinbaseClient) GenerateDualAxisChartPNG(graphData *GraphData) ([]byte,
 		sellScatter.Shape = draw.TriangleGlyph{}
 		p.Legend.Add("Sell", sellScatter)
 	}
-	if len(graphData.AccountValues) > 0 {
+
+	if len(assetData) > 0 {
 		assetLine, _ := plotter.NewLine(plotter.XYs{})
 		assetLine.Color = color.RGBA{R: 128, G: 0, B: 128, A: 255}
 		assetLine.Dashes = []vg.Length{vg.Points(5), vg.Points(5)}
 		p.Legend.Add("Asset Value", assetLine)
-	}
-
-	// Add title with asset value information
-	if len(graphData.AccountValues) > 0 {
-		firstValue := graphData.AccountValues[0].TotalUSD
-		lastValue := graphData.AccountValues[len(graphData.AccountValues)-1].TotalUSD
-		valueChange := lastValue - firstValue
-		valueChangePct := (valueChange / firstValue) * 100
-
-		p.Title.Text = fmt.Sprintf("BTC-USDC Trading Chart (%s) - Asset Value: $%.2f → $%.2f (%.1f%%)",
-			graphData.Period, firstValue, lastValue, valueChangePct)
 	}
 
 	// Create the image
