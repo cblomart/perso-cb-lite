@@ -365,6 +365,15 @@ func (h *Handlers) GetCandles(c *gin.Context) {
 		}
 	}
 
+	// Validate that we won't exceed 350 candles
+	if limit > 350 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Limit too high",
+			"message": "Limit cannot exceed 350 candles (Coinbase API limit)",
+		})
+		return
+	}
+
 	// Validate granularity
 	validGranularities := map[string]bool{
 		"UNKNOWN_GRANULARITY": true,
@@ -447,24 +456,32 @@ func (h *Handlers) GetMarketState(c *gin.Context) {
 }
 
 // getPresetPeriod returns start, end, and granularity for preset periods
+// Ensures we stay within the 350 candle limit
 func (h *Handlers) getPresetPeriod(period string) (string, string, string) {
 	now := time.Now()
 
 	switch period {
 	case "last_hour":
+		// 60 minutes = 60 candles (within limit)
 		start := now.Add(-1 * time.Hour).Unix()
 		return fmt.Sprintf("%d", start), fmt.Sprintf("%d", now.Unix()), "ONE_MINUTE"
 	case "last_day":
+		// 24 hours * 4 (15-min intervals) = 96 candles (within limit)
 		start := now.AddDate(0, 0, -1).Unix()
 		return fmt.Sprintf("%d", start), fmt.Sprintf("%d", now.Unix()), "FIFTEEN_MINUTE"
 	case "last_week":
+		// 7 days * 4 (6-hour intervals) = 28 candles (within limit)
 		start := now.AddDate(0, 0, -7).Unix()
 		return fmt.Sprintf("%d", start), fmt.Sprintf("%d", now.Unix()), "SIX_HOUR"
 	case "last_month":
+		// 30 days * 24 (hourly intervals) = 720 candles (exceeds limit)
+		// Use 6-hour intervals: 30 days * 4 = 120 candles (well within limit)
 		start := now.AddDate(0, -1, 0).Unix()
-		return fmt.Sprintf("%d", start), fmt.Sprintf("%d", now.Unix()), "ONE_HOUR"
+		return fmt.Sprintf("%d", start), fmt.Sprintf("%d", now.Unix()), "SIX_HOUR"
 	case "last_year":
-		start := now.AddDate(-1, 0, 0).Unix()
+		// 365 days (daily intervals) = 365 candles (exceeds limit)
+		// Limit to 350 days to stay within API limit
+		start := now.AddDate(0, 0, -350).Unix()
 		return fmt.Sprintf("%d", start), fmt.Sprintf("%d", now.Unix()), "ONE_DAY"
 	default:
 		return "", "", ""

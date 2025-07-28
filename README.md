@@ -75,8 +75,8 @@ curl -H "X-API-Key: YOUR_ACCESS_KEY" \
   "http://localhost:8080/api/v1/candles?start=1639508050&end=1639594450&granularity=ONE_HOUR"
 
 # Preset periods (convenient shortcuts)
-curl -H "X-API-Key: YOUR_ACCESS_KEY" "http://localhost:8080/api/v1/candles?period=last_year"   # Daily candles
-curl -H "X-API-Key: YOUR_ACCESS_KEY" "http://localhost:8080/api/v1/candles?period=last_month"   # Hourly candles  
+curl -H "X-API-Key: YOUR_ACCESS_KEY" "http://localhost:8080/api/v1/candles?period=last_year"   # Daily candles (350 days)
+curl -H "X-API-Key: YOUR_ACCESS_KEY" "http://localhost:8080/api/v1/candles?period=last_month"   # 6-hour candles  
 curl -H "X-API-Key: YOUR_ACCESS_KEY" "http://localhost:8080/api/v1/candles?period=last_week"    # 6-hour candles
 curl -H "X-API-Key: YOUR_ACCESS_KEY" "http://localhost:8080/api/v1/candles?period=last_day"     # 15-minute candles
 curl -H "X-API-Key: YOUR_ACCESS_KEY" "http://localhost:8080/api/v1/candles?period=last_hour"    # 1-minute candles
