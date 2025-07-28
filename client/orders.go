@@ -90,13 +90,12 @@ func (c *CoinbaseClient) CalculateOrderSizeByPercentage(side string, percentage 
 	}
 
 	// Calculate the amount to use based on percentage, with 1% fee buffer
-	// We reduce the percentage by 1% to account for Coinbase fees
-	effectivePercentage := percentage * 0.99 // 1% fee buffer
-	amountToUse := availableBalance * (effectivePercentage / 100.0)
+	// Apply fee buffer directly to the amount to avoid double calculation
+	amountToUse := availableBalance * (percentage / 100.0) * 0.99 // 1% fee buffer
 
 	var orderSize float64
 	if side == "BUY" {
-		// For BUY orders: order_size = (available_quote_currency * effective_percentage) / price
+		// For BUY orders: order_size = (available_quote_currency * percentage) / price
 		priceFloat, err := strconv.ParseFloat(price, 64)
 		if err != nil {
 			return "", fmt.Errorf("invalid price format: %w", err)
@@ -106,14 +105,14 @@ func (c *CoinbaseClient) CalculateOrderSizeByPercentage(side string, percentage 
 		}
 		orderSize = amountToUse / priceFloat
 	} else {
-		// For SELL orders: order_size = available_base_currency * effective_percentage
+		// For SELL orders: order_size = available_base_currency * percentage
 		orderSize = amountToUse
 	}
 
 	// Log the calculation for transparency (only in debug mode)
 	if os.Getenv("LOG_LEVEL") == "DEBUG" {
-		c.logger.Printf("Percentage calculation: %.2f%% requested, %.2f%% effective (with 1%% fee buffer), amount: %.8f %s",
-			percentage, effectivePercentage, amountToUse, currency)
+		c.logger.Printf("Percentage calculation: %.2f%% requested, amount after 1%% fee buffer: %.8f %s, order size: %.8f",
+			percentage, amountToUse, currency, orderSize)
 	}
 
 	// Format to 8 decimal places (standard for crypto)
