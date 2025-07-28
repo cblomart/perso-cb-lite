@@ -109,10 +109,18 @@ func (c *CoinbaseClient) createOrder(side, size, price, stopPrice, limitPrice st
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	c.logger.Printf("Placing %s order: size=%s, price=%s", side, size, price)
+	// Determine which price to use for balance check
+	balanceCheckPrice := price
+	if stopPrice != "" && limitPrice != "" {
+		// For stop-limit orders, use limit_price for balance calculation
+		balanceCheckPrice = limitPrice
+		c.logger.Printf("Placing %s stop-limit order: size=%s, stop_price=%s, limit_price=%s", side, size, stopPrice, limitPrice)
+	} else {
+		c.logger.Printf("Placing %s limit order: size=%s, price=%s", side, size, price)
+	}
 
 	// Check balance before placing order
-	if err := c.checkBalance(side, size, price); err != nil {
+	if err := c.checkBalance(side, size, balanceCheckPrice); err != nil {
 		return nil, fmt.Errorf("balance check failed: %w", err)
 	}
 
@@ -156,6 +164,29 @@ func (c *CoinbaseClient) createOrder(side, size, price, stopPrice, limitPrice st
 	if err != nil {
 		c.logger.Printf("Error creating %s order: %v", side, err)
 		return nil, fmt.Errorf("failed to create %s order: %w", side, err)
+	}
+
+	// Check for error response from Coinbase
+	var errorResp struct {
+		ErrorResponse struct {
+			Error                string `json:"error"`
+			ErrorDetails         string `json:"error_details"`
+			Message              string `json:"message"`
+			PreviewFailureReason string `json:"preview_failure_reason"`
+		} `json:"error_response"`
+		Success bool `json:"success"`
+	}
+
+	if err := json.Unmarshal(respBody, &errorResp); err == nil && !errorResp.Success {
+		// Order failed with error response
+		errorMsg := errorResp.ErrorResponse.Message
+		if errorMsg == "" {
+			errorMsg = errorResp.ErrorResponse.Error
+		}
+		if errorResp.ErrorResponse.PreviewFailureReason != "" {
+			errorMsg = fmt.Sprintf("%s (Preview: %s)", errorMsg, errorResp.ErrorResponse.PreviewFailureReason)
+		}
+		return nil, fmt.Errorf("order failed: %s", errorMsg)
 	}
 
 	var resp CreateOrderResponse

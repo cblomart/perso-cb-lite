@@ -81,21 +81,20 @@ curl -H "X-API-Key: YOUR_ACCESS_KEY" "http://localhost:8080/api/v1/candles?perio
 curl -H "X-API-Key: YOUR_ACCESS_KEY" "http://localhost:8080/api/v1/candles?period=last_day"     # 15-minute candles
 curl -H "X-API-Key: YOUR_ACCESS_KEY" "http://localhost:8080/api/v1/candles?period=last_hour"    # 1-minute candles
 
-# Buy 0.001 BTC at $45,000
+# Buy 0.001 BTC at $45,000 (regular limit order)
 curl -X POST http://localhost:8080/api/v1/buy \
   -H "Content-Type: application/json" \
   -H "X-API-Key: YOUR_ACCESS_KEY" \
   -d '{"size": "0.001", "price": "45000.00"}'
 
-# Buy with stop-loss at $43,000
+# Buy with stop-loss (stop-limit order)
 curl -X POST http://localhost:8080/api/v1/buy \
   -H "Content-Type: application/json" \
   -H "X-API-Key: YOUR_ACCESS_KEY" \
   -d '{
     "size": "0.001", 
-    "price": "45000.00",
-    "stop_price": "43000.00",
-    "limit_price": "42900.00"
+    "stop_price": "120000.00",  # Trigger when price goes up to $120k
+    "limit_price": "119900.00"  # Buy at $119.9k (stop_price > limit_price for BUY)
   }'
 
 # Cancel all open orders

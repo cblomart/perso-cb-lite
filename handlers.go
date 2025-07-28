@@ -66,7 +66,7 @@ func (h *Handlers) BuyBTC(c *gin.Context) {
 		return
 	}
 
-	// Validate stop price and limit price if provided
+	// Validate stop price and limit price if provided (BUY order validation)
 	if req.StopPrice != "" || req.LimitPrice != "" {
 		if req.StopPrice == "" {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -84,7 +84,8 @@ func (h *Handlers) BuyBTC(c *gin.Context) {
 		}
 
 		// Validate stop price format
-		if _, err := strconv.ParseFloat(req.StopPrice, 64); err != nil {
+		stopPrice, err := strconv.ParseFloat(req.StopPrice, 64)
+		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Invalid stop price format",
 				"message": "Stop price must be a valid number",
@@ -93,10 +94,20 @@ func (h *Handlers) BuyBTC(c *gin.Context) {
 		}
 
 		// Validate limit price format
-		if _, err := strconv.ParseFloat(req.LimitPrice, 64); err != nil {
+		limitPrice, err := strconv.ParseFloat(req.LimitPrice, 64)
+		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Invalid limit price format",
 				"message": "Limit price must be a valid number",
+			})
+			return
+		}
+
+		// Validate stop price logic for BUY orders
+		if stopPrice <= limitPrice {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Invalid stop price for BUY order",
+				"message": "For BUY orders, stop price must be HIGHER than limit price (buy when price goes up)",
 			})
 			return
 		}
@@ -153,7 +164,7 @@ func (h *Handlers) SellBTC(c *gin.Context) {
 		return
 	}
 
-	// Validate stop price and limit price if provided
+	// Validate stop price and limit price if provided (SELL order validation)
 	if req.StopPrice != "" || req.LimitPrice != "" {
 		if req.StopPrice == "" {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -171,7 +182,8 @@ func (h *Handlers) SellBTC(c *gin.Context) {
 		}
 
 		// Validate stop price format
-		if _, err := strconv.ParseFloat(req.StopPrice, 64); err != nil {
+		stopPrice, err := strconv.ParseFloat(req.StopPrice, 64)
+		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Invalid stop price format",
 				"message": "Stop price must be a valid number",
@@ -180,10 +192,20 @@ func (h *Handlers) SellBTC(c *gin.Context) {
 		}
 
 		// Validate limit price format
-		if _, err := strconv.ParseFloat(req.LimitPrice, 64); err != nil {
+		limitPrice, err := strconv.ParseFloat(req.LimitPrice, 64)
+		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Invalid limit price format",
 				"message": "Limit price must be a valid number",
+			})
+			return
+		}
+
+		// Validate stop price logic for SELL orders
+		if stopPrice >= limitPrice {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Invalid stop price for SELL order",
+				"message": "For SELL orders, stop price must be LOWER than limit price (sell when price goes down)",
 			})
 			return
 		}
