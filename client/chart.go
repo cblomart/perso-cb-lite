@@ -16,7 +16,7 @@ import (
 	"gonum.org/v1/plot/vg/vgimg"
 )
 
-// GenerateChartPNG creates a sleek PNG chart with dual Y-axis effect using gonum/plot
+// GenerateChartPNG creates a sleek PNG chart with two separate graphs
 func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) {
 	// Validate input data
 	if len(graphData.Candles) == 0 {
@@ -36,11 +36,15 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 		return time.Time{}, fmt.Errorf("unable to parse timestamp: %s", timeStr)
 	}
 
-	// Create a new plot
-	p := plot.New()
-	p.Title.Text = fmt.Sprintf("BTC-USDC Trading Chart (%s)", graphData.Period)
-	p.X.Label.Text = "Time"
-	p.Y.Label.Text = "BTC Price (USD)"
+	// Create a large image to hold both charts
+	img := vgimg.New(12*vg.Inch, 10*vg.Inch)
+	dc := draw.New(img)
+
+	// Create top chart (BTC Price and Trades) - takes 70% of height
+	topChart := plot.New()
+	topChart.Title.Text = fmt.Sprintf("BTC-USDC Price Chart (%s)", graphData.Period)
+	topChart.X.Label.Text = "Time"
+	topChart.Y.Label.Text = "BTC Price (USD)"
 
 	// Create candlestick data
 	candles := make(plotter.XYs, 0, len(graphData.Candles))
@@ -72,62 +76,7 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 		return candles[i].X < candles[j].X
 	})
 
-	// Calculate price range for scaling
-	var minPrice, maxPrice float64
-	if len(candles) > 0 {
-		minPrice = candles[0].Y
-		maxPrice = candles[0].Y
-		for _, candle := range candles {
-			if candle.Y < minPrice {
-				minPrice = candle.Y
-			}
-			if candle.Y > maxPrice {
-				maxPrice = candle.Y
-			}
-		}
-	}
-
-	// Calculate asset value range and scaling
-	var assetScaleFactor float64
-	var assetOffset float64
-	var assetData plotter.XYs
-
-	if len(graphData.AccountValues) > 0 {
-		var minAsset, maxAsset float64
-		minAsset = graphData.AccountValues[0].TotalUSD
-		maxAsset = graphData.AccountValues[0].TotalUSD
-
-		for _, av := range graphData.AccountValues {
-			if av.TotalUSD < minAsset {
-				minAsset = av.TotalUSD
-			}
-			if av.TotalUSD > maxAsset {
-				maxAsset = av.TotalUSD
-			}
-		}
-
-		// Scale asset values to fit in the upper portion of the price range
-		priceRange := maxPrice - minPrice
-		assetRange := maxAsset - minAsset
-
-		if assetRange > 0 {
-			// Use 25% of the price range for asset values
-			assetScaleFactor = (priceRange * 0.25) / assetRange
-			assetOffset = maxPrice * 0.75 // Position in upper 25%
-		} else {
-			assetScaleFactor = 1.0
-			assetOffset = maxPrice * 0.8
-		}
-
-		// Create scaled asset data
-		assetData = make(plotter.XYs, len(graphData.AccountValues))
-		for i, av := range graphData.AccountValues {
-			assetData[i].X = float64(av.Timestamp)
-			assetData[i].Y = (av.TotalUSD * assetScaleFactor) + assetOffset
-		}
-	}
-
-	// Add candlesticks
+	// Add candlesticks to top chart
 	for _, candle := range graphData.Candles {
 		timestamp, err := parseTimestamp(candle.Start)
 		if err != nil {
@@ -150,7 +99,7 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 		if err == nil {
 			wickLine.Color = color.RGBA{R: 0, G: 0, B: 0, A: 255}
 			wickLine.Width = vg.Points(1)
-			p.Add(wickLine)
+			topChart.Add(wickLine)
 		}
 
 		// Body line (open to close)
@@ -166,7 +115,7 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 				bodyLine.Color = color.RGBA{R: 255, G: 0, B: 0, A: 255}
 			}
 			bodyLine.Width = vg.Points(3)
-			p.Add(bodyLine)
+			topChart.Add(bodyLine)
 		}
 	}
 
@@ -175,7 +124,7 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 	if err == nil {
 		priceLine.Color = color.RGBA{R: 0, G: 0, B: 255, A: 100}
 		priceLine.Width = vg.Points(0.5)
-		p.Add(priceLine)
+		topChart.Add(priceLine)
 	}
 
 	// Add EMAs if available
@@ -199,7 +148,7 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 			if err == nil {
 				ema12Line.Color = color.RGBA{R: 255, G: 165, B: 0, A: 255}
 				ema12Line.Width = vg.Points(1.5)
-				p.Add(ema12Line)
+				topChart.Add(ema12Line)
 			}
 		}
 	}
@@ -224,7 +173,7 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 			if err == nil {
 				ema26Line.Color = color.RGBA{R: 255, G: 0, B: 0, A: 255}
 				ema26Line.Width = vg.Points(1.5)
-				p.Add(ema26Line)
+				topChart.Add(ema26Line)
 			}
 		}
 	}
@@ -254,7 +203,7 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 				buyScatter.Color = color.RGBA{R: 0, G: 255, B: 0, A: 255}
 				buyScatter.Shape = draw.TriangleGlyph{}
 				buyScatter.Radius = vg.Points(4)
-				p.Add(buyScatter)
+				topChart.Add(buyScatter)
 			}
 		}
 
@@ -264,76 +213,126 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 				sellScatter.Color = color.RGBA{R: 255, G: 0, B: 0, A: 255}
 				sellScatter.Shape = draw.TriangleGlyph{}
 				sellScatter.Radius = vg.Points(4)
-				p.Add(sellScatter)
+				topChart.Add(sellScatter)
 			}
 		}
 	}
 
-	// Add scaled asset value line (dual Y-axis effect)
-	if len(assetData) > 0 {
-		assetLine, err := plotter.NewLine(assetData)
-		if err == nil {
-			assetLine.Color = color.RGBA{R: 128, G: 0, B: 128, A: 255}
-			assetLine.Width = vg.Points(2)
-			assetLine.Dashes = []vg.Length{vg.Points(5), vg.Points(5)}
-			p.Add(assetLine)
-		}
-	}
-
-	// Update title with asset value information
-	if len(graphData.AccountValues) > 0 {
-		firstValue := graphData.AccountValues[0].TotalUSD
-		lastValue := graphData.AccountValues[len(graphData.AccountValues)-1].TotalUSD
-		valueChange := lastValue - firstValue
-		valueChangePct := (valueChange / firstValue) * 100
-
-		p.Title.Text = fmt.Sprintf("BTC-USDC Trading Chart (%s) - Asset Value: $%.2f → $%.2f (%.1f%%)",
-			graphData.Period, firstValue, lastValue, valueChangePct)
-	}
-
 	// Format X-axis as time
-	p.X.Tick.Marker = plot.TimeTicks{Format: "01-02 15:04"}
+	topChart.X.Tick.Marker = plot.TimeTicks{Format: "01-02 15:04"}
 
-	// Add legend
-	p.Legend.Top = true
-	p.Legend.Left = true
-	p.Legend.Add("Price", priceLine)
+	// Add legend to top chart
+	topChart.Legend.Top = true
+	topChart.Legend.Left = true
+	topChart.Legend.Add("Price", priceLine)
 
 	if len(graphData.Indicators.EMA12) > 0 {
 		ema12Line, _ := plotter.NewLine(plotter.XYs{})
 		ema12Line.Color = color.RGBA{R: 255, G: 165, B: 0, A: 255}
-		p.Legend.Add("EMA12", ema12Line)
+		topChart.Legend.Add("EMA12", ema12Line)
 	}
 
 	if len(graphData.Indicators.EMA26) > 0 {
 		ema26Line, _ := plotter.NewLine(plotter.XYs{})
 		ema26Line.Color = color.RGBA{R: 255, G: 0, B: 0, A: 255}
-		p.Legend.Add("EMA26", ema26Line)
+		topChart.Legend.Add("EMA26", ema26Line)
 	}
 
 	if len(graphData.Trades) > 0 {
 		buyScatter, _ := plotter.NewScatter(plotter.XYs{})
 		buyScatter.Color = color.RGBA{R: 0, G: 255, B: 0, A: 255}
 		buyScatter.Shape = draw.TriangleGlyph{}
-		p.Legend.Add("Buy", buyScatter)
+		topChart.Legend.Add("Buy", buyScatter)
 
 		sellScatter, _ := plotter.NewScatter(plotter.XYs{})
 		sellScatter.Color = color.RGBA{R: 255, G: 0, B: 0, A: 255}
 		sellScatter.Shape = draw.TriangleGlyph{}
-		p.Legend.Add("Sell", sellScatter)
+		topChart.Legend.Add("Sell", sellScatter)
 	}
 
-	if len(assetData) > 0 {
-		assetLine, _ := plotter.NewLine(plotter.XYs{})
-		assetLine.Color = color.RGBA{R: 128, G: 0, B: 128, A: 255}
-		assetLine.Dashes = []vg.Length{vg.Points(5), vg.Points(5)}
-		p.Legend.Add("Asset Value", assetLine)
+	// Create bottom chart (Asset Value Line Chart) - takes 30% of height
+	bottomChart := plot.New()
+	bottomChart.Title.Text = "Total Asset Value Evolution"
+	bottomChart.X.Label.Text = "Time"
+	bottomChart.Y.Label.Text = "Asset Value (USD)"
+
+	// Create line chart data for asset values
+	if len(graphData.AccountValues) > 0 {
+		// Group asset values by day for cleaner chart
+		dailyValues := make(map[string]float64)
+		for _, av := range graphData.AccountValues {
+			timestamp := time.Unix(av.Timestamp, 0)
+			dayKey := timestamp.Format("2006-01-02")
+			if dailyValues[dayKey] == 0 || av.TotalUSD > dailyValues[dayKey] {
+				dailyValues[dayKey] = av.TotalUSD
+			}
+		}
+
+		// Convert to sorted data
+		var lineData plotter.XYs
+		for dayKey, value := range dailyValues {
+			timestamp, _ := time.Parse("2006-01-02", dayKey)
+			lineData = append(lineData, plotter.XY{
+				X: float64(timestamp.Unix()),
+				Y: value,
+			})
+		}
+
+		// Sort by time
+		sort.Slice(lineData, func(i, j int) bool {
+			return lineData[i].X < lineData[j].X
+		})
+
+		// Add line chart
+		line, err := plotter.NewLine(lineData)
+		if err == nil {
+			line.Color = color.RGBA{R: 128, G: 0, B: 128, A: 255}
+			line.Width = vg.Points(3)
+			bottomChart.Add(line)
+		}
+
+		// Add scatter points for emphasis
+		scatter, err := plotter.NewScatter(lineData)
+		if err == nil {
+			scatter.Color = color.RGBA{R: 128, G: 0, B: 128, A: 255}
+			scatter.Radius = vg.Points(2)
+			bottomChart.Add(scatter)
+		}
 	}
 
-	// Create the image
-	img := vgimg.New(12*vg.Inch, 8*vg.Inch)
-	dc := draw.New(img)
-	p.Draw(dc)
+	// Format X-axis as time for bottom chart
+	bottomChart.X.Tick.Marker = plot.TimeTicks{Format: "01-02"}
+
+	// Draw top chart (70% of height)
+	topCanvas := draw.Canvas{
+		Canvas: dc,
+		Rectangle: vg.Rectangle{
+			Min: vg.Point{X: 0, Y: 3 * vg.Inch}, // Bottom 30% for bottom chart
+			Max: vg.Point{X: 12 * vg.Inch, Y: 10 * vg.Inch},
+		},
+	}
+	topChart.Draw(topCanvas)
+
+	// Draw bottom chart (30% of height)
+	bottomCanvas := draw.Canvas{
+		Canvas: dc,
+		Rectangle: vg.Rectangle{
+			Min: vg.Point{X: 0, Y: 0},
+			Max: vg.Point{X: 12 * vg.Inch, Y: 3 * vg.Inch},
+		},
+	}
+	bottomChart.Draw(bottomCanvas)
+
+	// Add overall title with asset value information to top chart
+	if len(graphData.AccountValues) > 0 {
+		firstValue := graphData.AccountValues[0].TotalUSD
+		lastValue := graphData.AccountValues[len(graphData.AccountValues)-1].TotalUSD
+		valueChange := lastValue - firstValue
+		valueChangePct := (valueChange / firstValue) * 100
+
+		topChart.Title.Text = fmt.Sprintf("BTC-USDC Trading Chart (%s) - Asset Value: $%.2f → $%.2f (%.1f%%)",
+			graphData.Period, firstValue, lastValue, valueChangePct)
+	}
 
 	// Convert to PNG bytes
 	var buf bytes.Buffer
