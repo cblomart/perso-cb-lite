@@ -50,7 +50,10 @@ The `/api/v1/signal` endpoint provides comprehensive technical analysis:
 - **204 No Content**: No bearish signals detected
 
 **Webhook Integration:**
-When `WEBHOOK_URL` is configured, the API automatically sends GET requests to n8n when bearish signals are detected:
+When `WEBHOOK_URL` is configured, the API automatically:
+- **Polls Coinbase every 10 minutes** for signal data
+- **Sends GET requests to n8n** when bearish signals are detected
+- **Logs all signal checks** for monitoring
 
 ```bash
 # Example webhook URL format
@@ -64,7 +67,11 @@ WEBHOOK_URL=http://n8n:5678/webhook/signal
 1. Create a webhook trigger in n8n
 2. Set the webhook URL (e.g., `http://n8n:5678/webhook/signal`)
 3. Configure the API with `WEBHOOK_URL=http://n8n:5678/webhook/signal`
-4. The API will automatically notify n8n when bearish signals are detected
+4. The API will automatically poll and notify n8n when bearish signals are detected
+
+**Polling Behavior:**
+- **With WEBHOOK_URL**: Automatic polling every 10 minutes + webhook notifications
+- **Without WEBHOOK_URL**: Manual polling only via `/api/v1/signal` endpoint
 
 **Data Requirements:**
 - **Timeframe**: 25 hours of 5-minute candles (~1 day)

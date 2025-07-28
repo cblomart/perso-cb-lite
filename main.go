@@ -80,6 +80,16 @@ func main() {
 	// Initialize handlers
 	handlers := NewHandlers(coinbaseClient)
 
+	// Start background signal polling if webhook URL is configured
+	if tradingConfig.WebhookURL != "" {
+		log.Printf("🔔 Starting background signal polling (every 10 minutes)")
+		log.Printf("   - Webhook URL: %s", tradingConfig.WebhookURL)
+		go startSignalPolling(coinbaseClient, tradingConfig.WebhookURL)
+	} else {
+		log.Printf("🔕 No webhook URL configured - signal polling disabled")
+		log.Printf("   - Set WEBHOOK_URL to enable automatic signal notifications")
+	}
+
 	// Setup router
 	router := gin.Default()
 
@@ -275,4 +285,38 @@ func main() {
 	}
 
 	log.Println("Server stopped.")
+}
+
+// startSignalPolling runs background signal polling every 10 minutes
+func startSignalPolling(client *client.CoinbaseClient, webhookURL string) {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+
+	log.Printf("🚀 Background signal polling started - checking every 10 minutes")
+
+	// Run initial check after 1 minute
+	time.Sleep(1 * time.Minute)
+	checkSignal(client)
+
+	// Continue polling every 10 minutes
+	for range ticker.C {
+		checkSignal(client)
+	}
+}
+
+// checkSignal performs a single signal check and logs the result
+func checkSignal(client *client.CoinbaseClient) {
+	log.Printf("🔍 Checking for trading signals...")
+
+	signal, err := client.GetSignal()
+	if err != nil {
+		log.Printf("❌ Signal check failed: %v", err)
+		return
+	}
+
+	if signal.BearishSignal {
+		log.Printf("🚨 BEARISH SIGNAL DETECTED: %v", signal.Triggers)
+	} else {
+		log.Printf("✅ No bearish signals detected")
+	}
 }
