@@ -30,6 +30,11 @@ type AccountsResponse struct {
 
 // GetAccounts retrieves accounts for the configured trading pair
 func (c *CoinbaseClient) GetAccounts() ([]Account, error) {
+	return c.GetAccountsWithLogging(true)
+}
+
+// GetAccountsWithLogging retrieves accounts with optional debug logging
+func (c *CoinbaseClient) GetAccountsWithLogging(enableLogging bool) ([]Account, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -41,14 +46,16 @@ func (c *CoinbaseClient) GetAccounts() ([]Account, error) {
 	baseCurrency := parts[0]
 	quoteCurrency := parts[1]
 
-	// Only log in debug mode for performance
-	if os.Getenv("LOG_LEVEL") == "DEBUG" {
+	// Only log in debug mode for performance (and if logging is enabled)
+	if os.Getenv("LOG_LEVEL") == "DEBUG" && enableLogging {
 		c.logger.Printf("Fetching accounts for %s and %s...", baseCurrency, quoteCurrency)
 	}
 
 	respBody, err := c.makeRequest(ctx, "GET", "/accounts", nil)
 	if err != nil {
-		c.logger.Printf("Error fetching accounts: %v", err)
+		if enableLogging {
+			c.logger.Printf("Error fetching accounts: %v", err)
+		}
 		return nil, fmt.Errorf("failed to fetch accounts: %w", err)
 	}
 
@@ -71,8 +78,8 @@ func (c *CoinbaseClient) GetAccounts() ([]Account, error) {
 		}
 	}
 
-	// Only log in debug mode for performance
-	if os.Getenv("LOG_LEVEL") == "DEBUG" {
+	// Only log in debug mode for performance (and if logging is enabled)
+	if os.Getenv("LOG_LEVEL") == "DEBUG" && enableLogging {
 		c.logger.Printf("Successfully fetched %d trading accounts (%s/%s)", len(accounts), baseCurrency, quoteCurrency)
 	}
 	return accounts, nil

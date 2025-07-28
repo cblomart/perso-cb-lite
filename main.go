@@ -177,7 +177,7 @@ func main() {
 	// Health check with Coinbase validation
 	router.GET("/health", func(c *gin.Context) {
 		// Test Coinbase communication and authentication
-		accounts, err := coinbaseClient.GetAccounts()
+		accounts, err := coinbaseClient.GetAccountsWithLogging(false) // Suppress debug logs for health checks
 		if err != nil {
 			c.JSON(503, gin.H{
 				"status":    "unhealthy",
