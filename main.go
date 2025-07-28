@@ -196,6 +196,7 @@ func main() {
 		api.DELETE("/orders", handlers.CancelAllOrders)
 		api.GET("/candles", handlers.GetCandles)
 		api.GET("/market", handlers.GetMarketState)
+		api.GET("/graph", handlers.GetGraph)
 	}
 
 	// Get port from environment or use default
@@ -222,6 +223,9 @@ func main() {
 		logger.Debug("   - Buy: POST http://localhost:%s/api/v1/buy", port)
 		logger.Debug("   - Sell: POST http://localhost:%s/api/v1/sell", port)
 		logger.Debug("   - Cancel all: DELETE http://localhost:%s/api/v1/orders", port)
+		logger.Debug("   - Candles: GET http://localhost:%s/api/v1/candles", port)
+		logger.Debug("   - Market: GET http://localhost:%s/api/v1/market", port)
+		logger.Debug("   - Graph: GET http://localhost:%s/api/v1/graph?period=week", port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("Failed to start server: %v", err)
 			os.Exit(1)

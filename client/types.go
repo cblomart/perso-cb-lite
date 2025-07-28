@@ -4,6 +4,7 @@ import "time"
 
 // Account represents a Coinbase account with simplified structure for BTC/USDC trading
 type Account struct {
+	UUID             string `json:"uuid"`
 	Currency         string `json:"currency"`
 	AvailableBalance string `json:"available_balance"`
 	Hold             string `json:"hold"`
@@ -108,4 +109,57 @@ type SignalResponse struct {
 	Indicators    TechnicalIndicators `json:"indicators"`
 	Triggers      []string            `json:"triggers,omitempty"`
 	Timestamp     int64               `json:"timestamp"`
+}
+
+// Trade represents a completed trade
+type Trade struct {
+	ID          string `json:"id"`
+	ProductID   string `json:"product_id"`
+	Side        string `json:"side"` // BUY or SELL
+	Size        string `json:"size"`
+	Price       string `json:"price"`
+	FilledSize  string `json:"filled_size"`
+	FilledValue string `json:"filled_value"`
+	Fee         string `json:"fee"`
+	CreatedAt   int64  `json:"created_at"`
+	ExecutedAt  int64  `json:"executed_at"`
+}
+
+// AccountValue represents account balance at a point in time
+type AccountValue struct {
+	Timestamp int64   `json:"timestamp"`
+	BTC       float64 `json:"btc"`
+	USDC      float64 `json:"usdc"`
+	TotalUSD  float64 `json:"total_usd"` // Total value in USD
+}
+
+// GraphData represents the complete data for charting
+type GraphData struct {
+	Period        string         `json:"period"` // "week" or "month"
+	StartTime     int64          `json:"start_time"`
+	EndTime       int64          `json:"end_time"`
+	Candles       []Candle       `json:"candles"`
+	Trades        []Trade        `json:"trades"`
+	AccountValues []AccountValue `json:"account_values"`
+	Indicators    struct {
+		EMA12  []float64 `json:"ema_12"`
+		EMA26  []float64 `json:"ema_26"`
+		RSI    []float64 `json:"rsi"`
+		MACD   []float64 `json:"macd"`
+		Signal []float64 `json:"signal"`
+	} `json:"indicators"`
+	Summary struct {
+		TotalTrades    int     `json:"total_trades"`
+		BuyTrades      int     `json:"buy_trades"`
+		SellTrades     int     `json:"sell_trades"`
+		TotalVolume    float64 `json:"total_volume"`
+		TotalFees      float64 `json:"total_fees"`
+		StartingValue  float64 `json:"starting_value"`
+		EndingValue    float64 `json:"ending_value"`
+		ValueChange    float64 `json:"value_change"`
+		ValueChangePct float64 `json:"value_change_pct"`
+		BestPrice      float64 `json:"best_price"`
+		WorstPrice     float64 `json:"worst_price"`
+		AveragePrice   float64 `json:"average_price"`
+	} `json:"summary"`
 }

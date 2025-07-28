@@ -4,14 +4,15 @@ A simple Go API for trading cryptocurrencies on Coinbase.
 
 ## What it does
 
-- Buy and sell crypto with market orders
-- Buy/sell percentage of available balance with `percentage` setting (includes actual Coinbase fees)
-- Check your account balance
-- View and cancel orders (individual or all)
-- Get market data (candles) for technical analysis
-- View current market state (bid/ask, spread, order book)
-- Automatic balance validation before placing orders
-- Secure API with rate limiting
+- **Buy and sell crypto** with market orders (includes actual Coinbase fees)
+- **Get account balances** and trading status
+- **View open orders** and cancel them individually or all at once
+- **Fetch candlestick data** with flexible time periods (last year, month, week, day, hour)
+- **Get market state** including bid/ask prices and spread
+- **Trading signals** with technical analysis (MACD, RSI, EMA, ADX, volume analysis)
+- **Webhook notifications** for trend changes (when configured)
+- **Performance monitoring** with request statistics and uptime
+- **PNG trading charts** with candles, trades, indicators, and account values (perfect for Telegram)
 
 ### Fee Structure
 
@@ -191,6 +192,32 @@ curl -X POST http://localhost:8080/api/v1/sell \
 curl -X DELETE http://localhost:8080/api/v1/orders \
   -H "X-API-Key: YOUR_ACCESS_KEY"
 ```
+
+### Get Market State
+```bash
+# Get current bid/ask prices and spread
+curl -H "X-API-Key: YOUR_KEY" http://localhost:8080/api/v1/market
+
+# Get order book with specific depth (1-100)
+curl -H "X-API-Key: YOUR_KEY" "http://localhost:8080/api/v1/market?limit=20"
+```
+
+### Get Trading Chart (PNG Image)
+```bash
+# Get PNG chart for the last week (1-hour candles) - perfect for Telegram
+curl -H "X-API-Key: YOUR_KEY" "http://localhost:8080/api/v1/graph?period=week" --output chart-week.png
+
+# Get PNG chart for the last month (6-hour candles) - perfect for Telegram
+curl -H "X-API-Key: YOUR_KEY" "http://localhost:8080/api/v1/graph?period=month" --output chart-month.png
+```
+
+**Chart Features:**
+- **Price Line**: Blue line showing BTC price over time
+- **Technical Indicators**: EMA12 (orange) and EMA26 (red) moving averages
+- **Trade Markers**: Green triangles (buy) and red triangles (sell)
+- **Account Value**: Purple dashed line showing total portfolio value
+- **Summary**: Trade count, volume, and percentage change
+- **Optimized for Telegram**: PNG format, reasonable file size
 
 ## Configuration
 

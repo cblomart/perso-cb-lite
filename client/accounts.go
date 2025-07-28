@@ -75,6 +75,7 @@ func (c *CoinbaseClient) GetAccountsWithLogging(enableLogging bool) ([]Account, 
 		currency := strings.ToUpper(account.Currency)
 		if currency == baseCurrency || currency == quoteCurrency {
 			accounts = append(accounts, Account{
+				UUID:             account.UUID,
 				Currency:         currency,
 				AvailableBalance: account.AvailableBalance.Value,
 				Hold:             account.Hold.Value,

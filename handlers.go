@@ -464,3 +464,44 @@ func (h *Handlers) GetSignal(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 	}
 }
+
+// GetGraph returns a PNG chart image for Telegram
+func (h *Handlers) GetGraph(c *gin.Context) {
+	// Get period from query parameter (default to week)
+	period := c.DefaultQuery("period", "week")
+	if period != "week" && period != "month" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Invalid period",
+			"message": "Period must be 'week' or 'month'",
+		})
+		return
+	}
+
+	// Get graph data from client
+	graphData, err := h.client.GetGraphData(period)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to fetch graph data",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// Generate PNG chart
+	pngData, err := h.client.GenerateChartPNG(graphData)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to generate chart",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// Set headers for PNG image
+	c.Header("Content-Type", "image/png")
+	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=btc-usdc-chart-%s.png", period))
+	c.Header("Cache-Control", "public, max-age=300") // Cache for 5 minutes
+
+	// Return PNG data
+	c.Data(http.StatusOK, "image/png", pngData)
+}
