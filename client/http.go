@@ -54,7 +54,7 @@ func (c *CoinbaseClient) makeRequest(ctx context.Context, method, endpoint strin
 	}
 
 	// Debug: Log request details (skip for health checks)
-	if os.Getenv("LOG_LEVEL") == "DEBUG" && !strings.Contains(endpoint, "/health") {
+	if os.Getenv("LOG_LEVEL") == "DEBUG" && endpoint != "/health" {
 		c.logger.Printf("=== REQUEST DUMP ===")
 		c.logger.Printf("Method: %s", method)
 		c.logger.Printf("URL: %s", url)
@@ -91,7 +91,7 @@ func (c *CoinbaseClient) makeRequest(ctx context.Context, method, endpoint strin
 	}
 
 	// Debug: Log response details (skip for health checks)
-	if os.Getenv("LOG_LEVEL") == "DEBUG" && !strings.Contains(endpoint, "/health") {
+	if os.Getenv("LOG_LEVEL") == "DEBUG" && endpoint != "/health" {
 		c.logger.Printf("=== RESPONSE DUMP ===")
 		c.logger.Printf("Status: %s", resp.Status)
 		c.logger.Printf("Headers:")

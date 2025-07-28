@@ -79,20 +79,27 @@ func (c *CoinbaseClient) checkBalance(side, size, price string) error {
 		priceFloat, _ := strconv.ParseFloat(price, 64)
 		requiredAmount = sizeFloat * priceFloat
 		requiredCurrency = strings.Split(c.tradingPair, "-")[1] // Quote currency
+		c.logger.Printf("Balance check: BUY order requires %.8f %s (size=%.8f * price=%.8f)",
+			requiredAmount, requiredCurrency, sizeFloat, priceFloat)
 	} else {
 		// For SELL orders, we need base currency (e.g., BTC)
 		sizeFloat, _ := strconv.ParseFloat(size, 64)
 		requiredAmount = sizeFloat
 		requiredCurrency = strings.Split(c.tradingPair, "-")[0] // Base currency
+		c.logger.Printf("Balance check: SELL order requires %.8f %s (size=%.8f)",
+			requiredAmount, requiredCurrency, sizeFloat)
 	}
 
 	// Find the required currency account
 	for _, account := range accounts {
 		if account.Currency == requiredCurrency {
 			availableBalance, _ := strconv.ParseFloat(account.AvailableBalance, 64)
+			c.logger.Printf("Balance check: Found %s account with %.8f available",
+				requiredCurrency, availableBalance)
 			if availableBalance < requiredAmount {
-				return fmt.Errorf("insufficient %s balance: need %.8f, have %.8f",
-					requiredCurrency, requiredAmount, availableBalance)
+				shortfall := requiredAmount - availableBalance
+				return fmt.Errorf("insufficient %s balance: need %.8f, have %.8f (shortfall: %.8f)",
+					requiredCurrency, requiredAmount, availableBalance, shortfall)
 			}
 			c.logger.Printf("Balance check passed: %.8f %s available for %s order",
 				availableBalance, requiredCurrency, side)
