@@ -48,17 +48,29 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 			}
 		}
 
+		// Parse all OHLC values
+		openPrice, err := strconv.ParseFloat(candle.Open, 64)
+		if err != nil {
+			continue
+		}
+		highPrice, err := strconv.ParseFloat(candle.High, 64)
+		if err != nil {
+			continue
+		}
+		lowPrice, err := strconv.ParseFloat(candle.Low, 64)
+		if err != nil {
+			continue
+		}
 		closePrice, err := strconv.ParseFloat(candle.Close, 64)
 		if err != nil {
-			// Skip invalid prices
 			continue
 		}
 
 		// Only add valid data points
-		if closePrice > 0 {
+		if openPrice > 0 && highPrice > 0 && lowPrice > 0 && closePrice > 0 {
 			candles = append(candles, plotter.XY{
 				X: float64(timestamp.Unix()),
-				Y: closePrice,
+				Y: closePrice, // Use close price for positioning
 			})
 		}
 	}
@@ -68,19 +80,70 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 		return nil, fmt.Errorf("no valid candle data after parsing")
 	}
 
-	// Sort candles by time to ensure proper line drawing
+	// Sort candles by time to ensure proper drawing
 	sort.Slice(candles, func(i, j int) bool {
 		return candles[i].X < candles[j].X
 	})
 
-	// Add candlestick line
-	candleLine, err := plotter.NewLine(candles)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create candle line: %w", err)
+	// Create candlestick visualization using lines and points
+	for _, candle := range graphData.Candles {
+		// Parse timestamp
+		var timestamp time.Time
+		if t, err := time.Parse(time.RFC3339, candle.Start); err == nil {
+			timestamp = t
+		} else if unixTime, parseErr := strconv.ParseInt(candle.Start, 10, 64); parseErr == nil {
+			timestamp = time.Unix(unixTime, 0)
+		} else {
+			continue
+		}
+
+		// Parse OHLC values
+		openPrice, _ := strconv.ParseFloat(candle.Open, 64)
+		highPrice, _ := strconv.ParseFloat(candle.High, 64)
+		lowPrice, _ := strconv.ParseFloat(candle.Low, 64)
+		closePrice, _ := strconv.ParseFloat(candle.Close, 64)
+
+		// Determine if candle is bullish (close > open) or bearish (close < open)
+		isBullish := closePrice > openPrice
+
+		// Create wick line (high to low)
+		wickData := plotter.XYs{
+			{X: float64(timestamp.Unix()), Y: highPrice},
+			{X: float64(timestamp.Unix()), Y: lowPrice},
+		}
+
+		wickLine, err := plotter.NewLine(wickData)
+		if err == nil {
+			wickLine.Color = color.RGBA{R: 0, G: 0, B: 0, A: 255} // Black wick
+			wickLine.Width = vg.Points(1)
+			p.Add(wickLine)
+		}
+
+		// Create body lines (open to close)
+		bodyData := plotter.XYs{
+			{X: float64(timestamp.Unix()) - 0.3, Y: openPrice},
+			{X: float64(timestamp.Unix()) + 0.3, Y: closePrice},
+		}
+
+		bodyLine, err := plotter.NewLine(bodyData)
+		if err == nil {
+			if isBullish {
+				bodyLine.Color = color.RGBA{R: 0, G: 255, B: 0, A: 255} // Green for bullish
+			} else {
+				bodyLine.Color = color.RGBA{R: 255, G: 0, B: 0, A: 255} // Red for bearish
+			}
+			bodyLine.Width = vg.Points(3) // Thicker body
+			p.Add(bodyLine)
+		}
 	}
-	candleLine.Color = color.RGBA{R: 0, G: 0, B: 255, A: 255} // Blue
-	candleLine.Width = vg.Points(1)
-	p.Add(candleLine)
+
+	// Add a simple line chart for reference (can be removed if not needed)
+	candleLine, err := plotter.NewLine(candles)
+	if err == nil {
+		candleLine.Color = color.RGBA{R: 0, G: 0, B: 255, A: 100} // Semi-transparent blue
+		candleLine.Width = vg.Points(0.5)
+		p.Add(candleLine)
+	}
 
 	// Add EMA12 if available and has matching data points
 	if len(graphData.Indicators.EMA12) > 0 && len(graphData.Indicators.EMA12) == len(graphData.Candles) {
@@ -160,7 +223,7 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 	// Add legend
 	p.Legend.Top = true
 	p.Legend.Left = true
-	p.Legend.Add("Price", candleLine)
+	p.Legend.Add("Price", candleLine) // Changed to candleLine
 	if len(graphData.Indicators.EMA12) > 0 {
 		ema12Line, _ := plotter.NewLine(plotter.XYs{})
 		ema12Line.Color = color.RGBA{R: 255, G: 165, B: 0, A: 255}
