@@ -214,10 +214,9 @@ curl -H "X-API-Key: YOUR_KEY" "http://localhost:8080/api/v1/graph?period=month" 
 **Chart Features:**
 - **Price Line**: Blue line showing BTC price over time
 - **Technical Indicators**: EMA12 (orange) and EMA26 (red) moving averages
-- **Trade Markers**: Green triangles (buy) and red triangles (sell)
-- **Account Value**: Purple dashed line showing total portfolio value
-- **Summary**: Trade count, volume, and percentage change
+- **Summary**: Period, candle count, and price range information
 - **Optimized for Telegram**: PNG format, reasonable file size
+- **Reliable**: Uses only candles data (no complex trade history or account calculations)
 
 ## Configuration
 

@@ -77,65 +77,11 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 		}
 	}
 
-	// Add trade markers
-	if len(graphData.Trades) > 0 {
-		buyTrades := make(plotter.XYs, 0)
-		sellTrades := make(plotter.XYs, 0)
+	// Add trade markers (simplified - no trades in basic chart)
+	// Trade markers are removed since we're not fetching trade history
 
-		for _, trade := range graphData.Trades {
-			price, _ := strconv.ParseFloat(trade.Price, 64)
-			tradePoint := plotter.XY{
-				X: float64(trade.ExecutedAt),
-				Y: price,
-			}
-
-			if trade.Side == "BUY" {
-				buyTrades = append(buyTrades, tradePoint)
-			} else {
-				sellTrades = append(sellTrades, tradePoint)
-			}
-		}
-
-		// Add buy markers (green triangles)
-		if len(buyTrades) > 0 {
-			buyScatter, err := plotter.NewScatter(buyTrades)
-			if err == nil {
-				buyScatter.Color = color.RGBA{R: 0, G: 255, B: 0, A: 255} // Green
-				buyScatter.Shape = draw.TriangleGlyph{}
-				buyScatter.Radius = vg.Points(4)
-				p.Add(buyScatter)
-			}
-		}
-
-		// Add sell markers (red triangles)
-		if len(sellTrades) > 0 {
-			sellScatter, err := plotter.NewScatter(sellTrades)
-			if err == nil {
-				sellScatter.Color = color.RGBA{R: 255, G: 0, B: 0, A: 255} // Red
-				sellScatter.Shape = draw.TriangleGlyph{}
-				sellScatter.Radius = vg.Points(4)
-				p.Add(sellScatter)
-			}
-		}
-	}
-
-	// Add account value line (secondary Y-axis)
-	if len(graphData.AccountValues) > 0 {
-		// Create secondary plot for account values
-		accountData := make(plotter.XYs, len(graphData.AccountValues))
-		for i, accountValue := range graphData.AccountValues {
-			accountData[i].X = float64(accountValue.Timestamp)
-			accountData[i].Y = accountValue.TotalUSD
-		}
-
-		accountLine, err := plotter.NewLine(accountData)
-		if err == nil {
-			accountLine.Color = color.RGBA{R: 128, G: 0, B: 128, A: 255} // Purple
-			accountLine.Width = vg.Points(2)
-			accountLine.Dashes = []vg.Length{vg.Points(5), vg.Points(5)} // Dashed line
-			p.Add(accountLine)
-		}
-	}
+	// Add account value line (simplified - no account values in basic chart)
+	// Account value line is removed since we're not calculating account values
 
 	// Format X-axis as time
 	p.X.Tick.Marker = plot.TimeTicks{Format: "01-02 15:04"}
@@ -154,23 +100,16 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 		ema26Line.Color = color.RGBA{R: 255, G: 0, B: 0, A: 255}
 		p.Legend.Add("EMA26", ema26Line)
 	}
-	if len(graphData.Trades) > 0 {
-		buyScatter, _ := plotter.NewScatter(plotter.XYs{})
-		buyScatter.Color = color.RGBA{R: 0, G: 255, B: 0, A: 255}
-		buyScatter.Shape = draw.TriangleGlyph{}
-		p.Legend.Add("Buy", buyScatter)
 
-		sellScatter, _ := plotter.NewScatter(plotter.XYs{})
-		sellScatter.Color = color.RGBA{R: 255, G: 0, B: 0, A: 255}
-		sellScatter.Shape = draw.TriangleGlyph{}
-		p.Legend.Add("Sell", sellScatter)
-	}
-	if len(graphData.AccountValues) > 0 {
-		accountLine, _ := plotter.NewLine(plotter.XYs{})
-		accountLine.Color = color.RGBA{R: 128, G: 0, B: 128, A: 255}
-		accountLine.Dashes = []vg.Length{vg.Points(5), vg.Points(5)}
-		p.Legend.Add("Account Value", accountLine)
-	}
+	// Add summary text
+	summaryText := fmt.Sprintf("Period: %s | Candles: %d | Price Range: $%.2f - $%.2f",
+		graphData.Period,
+		len(graphData.Candles),
+		graphData.Summary.WorstPrice,
+		graphData.Summary.BestPrice)
+
+	// Update the title to include summary information
+	p.Title.Text = fmt.Sprintf("BTC-USDC Trading Chart (%s) - %s", graphData.Period, summaryText)
 
 	// Create the image with specific dimensions
 	img := vgimg.New(12*vg.Inch, 8*vg.Inch)
