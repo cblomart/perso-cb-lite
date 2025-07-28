@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"image/png"
+	"os"
 	"sort"
 	"strconv"
 	"time"
@@ -23,29 +24,32 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 		return nil, fmt.Errorf("no candle data available")
 	}
 
+	// Helper function to parse timestamps consistently
+	parseTimestamp := func(timeStr string) (time.Time, error) {
+		// Try RFC3339 first
+		if t, err := time.Parse(time.RFC3339, timeStr); err == nil {
+			return t, nil
+		}
+		// Try Unix timestamp
+		if unixTime, err := strconv.ParseInt(timeStr, 10, 64); err == nil {
+			return time.Unix(unixTime, 0), nil
+		}
+		return time.Time{}, fmt.Errorf("unable to parse timestamp: %s", timeStr)
+	}
+
 	// Create a new plot
 	p := plot.New()
 	p.Title.Text = fmt.Sprintf("BTC-USDC Trading Chart (%s)", graphData.Period)
 	p.X.Label.Text = "Time"
 	p.Y.Label.Text = "Price (USD)"
 
-	// Create candlestick data with proper time parsing
+	// Create candlestick data with consistent time parsing
 	candles := make(plotter.XYs, 0, len(graphData.Candles))
 	for _, candle := range graphData.Candles {
-		// Parse timestamp - try multiple formats
-		var timestamp time.Time
-		var err error
-
-		// Try RFC3339 first
-		timestamp, err = time.Parse(time.RFC3339, candle.Start)
+		// Parse timestamp consistently
+		timestamp, err := parseTimestamp(candle.Start)
 		if err != nil {
-			// Try Unix timestamp
-			if unixTime, parseErr := strconv.ParseInt(candle.Start, 10, 64); parseErr == nil {
-				timestamp = time.Unix(unixTime, 0)
-			} else {
-				// Skip invalid timestamps
-				continue
-			}
+			continue
 		}
 
 		// Parse all OHLC values
@@ -80,6 +84,34 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 		return nil, fmt.Errorf("no valid candle data after parsing")
 	}
 
+	// Debug logging for timeline issues
+	if os.Getenv("LOG_LEVEL") == "DEBUG" {
+		if len(candles) > 0 {
+			firstTime := time.Unix(int64(candles[0].X), 0)
+			lastTime := time.Unix(int64(candles[len(candles)-1].X), 0)
+			fmt.Printf("Chart timeline: %s to %s (%d candles)\n",
+				firstTime.Format("2006-01-02 15:04:05"),
+				lastTime.Format("2006-01-02 15:04:05"),
+				len(candles))
+		}
+		if len(graphData.Trades) > 0 {
+			firstTrade := time.Unix(graphData.Trades[0].ExecutedAt, 0)
+			lastTrade := time.Unix(graphData.Trades[len(graphData.Trades)-1].ExecutedAt, 0)
+			fmt.Printf("Trade timeline: %s to %s (%d trades)\n",
+				firstTrade.Format("2006-01-02 15:04:05"),
+				lastTrade.Format("2006-01-02 15:04:05"),
+				len(graphData.Trades))
+		}
+		if len(graphData.AccountValues) > 0 {
+			firstValue := time.Unix(graphData.AccountValues[0].Timestamp, 0)
+			lastValue := time.Unix(graphData.AccountValues[len(graphData.AccountValues)-1].Timestamp, 0)
+			fmt.Printf("Account timeline: %s to %s (%d values)\n",
+				firstValue.Format("2006-01-02 15:04:05"),
+				lastValue.Format("2006-01-02 15:04:05"),
+				len(graphData.AccountValues))
+		}
+	}
+
 	// Sort candles by time to ensure proper drawing
 	sort.Slice(candles, func(i, j int) bool {
 		return candles[i].X < candles[j].X
@@ -87,13 +119,9 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 
 	// Create candlestick visualization using lines and points
 	for _, candle := range graphData.Candles {
-		// Parse timestamp
-		var timestamp time.Time
-		if t, err := time.Parse(time.RFC3339, candle.Start); err == nil {
-			timestamp = t
-		} else if unixTime, parseErr := strconv.ParseInt(candle.Start, 10, 64); parseErr == nil {
-			timestamp = time.Unix(unixTime, 0)
-		} else {
+		// Parse timestamp consistently
+		timestamp, err := parseTimestamp(candle.Start)
+		if err != nil {
 			continue
 		}
 
@@ -145,7 +173,7 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 		p.Add(candleLine)
 	}
 
-	// Add trade markers
+	// Add trade markers with consistent time parsing
 	if len(graphData.Trades) > 0 {
 		buyTrades := make(plotter.XYs, 0)
 		sellTrades := make(plotter.XYs, 0)
@@ -153,7 +181,7 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 		for _, trade := range graphData.Trades {
 			price, _ := strconv.ParseFloat(trade.Price, 64)
 			tradePoint := plotter.XY{
-				X: float64(trade.ExecutedAt),
+				X: float64(trade.ExecutedAt), // Already Unix timestamp
 				Y: price,
 			}
 
@@ -187,12 +215,12 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 		}
 	}
 
-	// Add account value line (secondary Y-axis)
+	// Add account value line (already Unix timestamps)
 	if len(graphData.AccountValues) > 0 {
 		// Create secondary plot for account values
 		accountData := make(plotter.XYs, len(graphData.AccountValues))
 		for i, accountValue := range graphData.AccountValues {
-			accountData[i].X = float64(accountValue.Timestamp)
+			accountData[i].X = float64(accountValue.Timestamp) // Already Unix timestamp
 			accountData[i].Y = accountValue.TotalUSD
 		}
 
@@ -210,12 +238,8 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 		ema12Data := make(plotter.XYs, 0, len(candles))
 		for i, candle := range graphData.Candles {
 			// Parse timestamp the same way as above
-			var timestamp time.Time
-			if t, err := time.Parse(time.RFC3339, candle.Start); err == nil {
-				timestamp = t
-			} else if unixTime, parseErr := strconv.ParseInt(candle.Start, 10, 64); parseErr == nil {
-				timestamp = time.Unix(unixTime, 0)
-			} else {
+			timestamp, err := parseTimestamp(candle.Start)
+			if err != nil {
 				continue
 			}
 
@@ -243,12 +267,8 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 		ema26Data := make(plotter.XYs, 0, len(candles))
 		for i, candle := range graphData.Candles {
 			// Parse timestamp the same way as above
-			var timestamp time.Time
-			if t, err := time.Parse(time.RFC3339, candle.Start); err == nil {
-				timestamp = t
-			} else if unixTime, parseErr := strconv.ParseInt(candle.Start, 10, 64); parseErr == nil {
-				timestamp = time.Unix(unixTime, 0)
-			} else {
+			timestamp, err := parseTimestamp(candle.Start)
+			if err != nil {
 				continue
 			}
 
