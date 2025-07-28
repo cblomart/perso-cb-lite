@@ -53,12 +53,12 @@ func (h *Handlers) BuyBTC(c *gin.Context) {
 	if req.Percentage > 0 {
 		// Determine which price to use for percentage calculation
 		priceForPercentage := req.Price
-		if req.StopPrice != "" && req.LimitPrice != "" {
+		if req.StopPrice > 0 && req.LimitPrice > 0 {
 			// For stop-limit orders, use limit_price for percentage calculation
 			priceForPercentage = req.LimitPrice
 		}
 
-		if priceForPercentage == "" {
+		if priceForPercentage <= 0 {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Missing price for percentage calculation",
 				"message": "Price or limit_price is required when using percentage",
@@ -66,7 +66,7 @@ func (h *Handlers) BuyBTC(c *gin.Context) {
 			return
 		}
 
-		calculatedSize, err := h.client.CalculateOrderSizeByPercentage("BUY", req.Percentage, priceForPercentage)
+		calculatedSize, err := h.client.CalculateOrderSizeByPercentage("BUY", req.Percentage, fmt.Sprintf("%.8f", priceForPercentage))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Failed to calculate order size by percentage",
@@ -88,34 +88,27 @@ func (h *Handlers) BuyBTC(c *gin.Context) {
 	}
 
 	// Validate price (required for regular limit orders, optional for stop-limit orders)
-	if req.StopPrice == "" && req.LimitPrice == "" {
+	if req.StopPrice <= 0 && req.LimitPrice <= 0 {
 		// Regular limit order - price is required
-		if req.Price == "" {
+		if req.Price <= 0 {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Missing price",
 				"message": "Price is required for regular limit orders",
 			})
 			return
 		}
-		if _, err := strconv.ParseFloat(req.Price, 64); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "Invalid price format",
-				"message": "Price must be a valid number",
-			})
-			return
-		}
 	}
 
 	// Validate stop price and limit price if provided (BUY order validation)
-	if req.StopPrice != "" || req.LimitPrice != "" {
-		if req.StopPrice == "" {
+	if req.StopPrice > 0 || req.LimitPrice > 0 {
+		if req.StopPrice <= 0 {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Missing stop price",
 				"message": "Stop price is required when limit price is provided",
 			})
 			return
 		}
-		if req.LimitPrice == "" {
+		if req.LimitPrice <= 0 {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Missing limit price",
 				"message": "Limit price is required when stop price is provided",
@@ -123,28 +116,8 @@ func (h *Handlers) BuyBTC(c *gin.Context) {
 			return
 		}
 
-		// Validate stop price format
-		stopPrice, err := strconv.ParseFloat(req.StopPrice, 64)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "Invalid stop price format",
-				"message": "Stop price must be a valid number",
-			})
-			return
-		}
-
-		// Validate limit price format
-		limitPrice, err := strconv.ParseFloat(req.LimitPrice, 64)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "Invalid limit price format",
-				"message": "Limit price must be a valid number",
-			})
-			return
-		}
-
 		// Validate stop price logic for BUY orders
-		if stopPrice <= limitPrice {
+		if req.StopPrice <= req.LimitPrice {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Invalid stop price for BUY order",
 				"message": "For BUY orders, stop price must be HIGHER than limit price (buy when price goes up)",
@@ -167,7 +140,7 @@ func (h *Handlers) BuyBTC(c *gin.Context) {
 		"order":   order,
 	}
 
-	if req.StopPrice != "" && req.LimitPrice != "" {
+	if req.StopPrice > 0 && req.LimitPrice > 0 {
 		response["stop_limit_created"] = true
 		response["stop_price"] = req.StopPrice
 		response["limit_price"] = req.LimitPrice
@@ -212,34 +185,27 @@ func (h *Handlers) SellBTC(c *gin.Context) {
 	}
 
 	// Validate price (required for regular limit orders, optional for stop-limit orders)
-	if req.StopPrice == "" && req.LimitPrice == "" {
+	if req.StopPrice <= 0 && req.LimitPrice <= 0 {
 		// Regular limit order - price is required
-		if req.Price == "" {
+		if req.Price <= 0 {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Missing price",
 				"message": "Price is required for regular limit orders",
 			})
 			return
 		}
-		if _, err := strconv.ParseFloat(req.Price, 64); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "Invalid price format",
-				"message": "Price must be a valid number",
-			})
-			return
-		}
 	}
 
 	// Validate stop price and limit price if provided (SELL order validation)
-	if req.StopPrice != "" || req.LimitPrice != "" {
-		if req.StopPrice == "" {
+	if req.StopPrice > 0 || req.LimitPrice > 0 {
+		if req.StopPrice <= 0 {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Missing stop price",
 				"message": "Stop price is required when limit price is provided",
 			})
 			return
 		}
-		if req.LimitPrice == "" {
+		if req.LimitPrice <= 0 {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Missing limit price",
 				"message": "Limit price is required when stop price is provided",
@@ -247,28 +213,8 @@ func (h *Handlers) SellBTC(c *gin.Context) {
 			return
 		}
 
-		// Validate stop price format
-		stopPrice, err := strconv.ParseFloat(req.StopPrice, 64)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "Invalid stop price format",
-				"message": "Stop price must be a valid number",
-			})
-			return
-		}
-
-		// Validate limit price format
-		limitPrice, err := strconv.ParseFloat(req.LimitPrice, 64)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "Invalid limit price format",
-				"message": "Limit price must be a valid number",
-			})
-			return
-		}
-
 		// Validate stop price logic for SELL orders
-		if stopPrice >= limitPrice {
+		if req.StopPrice >= req.LimitPrice {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Invalid stop price for SELL order",
 				"message": "For SELL orders, stop price must be LOWER than limit price (sell when price goes down)",
@@ -291,7 +237,7 @@ func (h *Handlers) SellBTC(c *gin.Context) {
 		"order":   order,
 	}
 
-	if req.StopPrice != "" && req.LimitPrice != "" {
+	if req.StopPrice > 0 && req.LimitPrice > 0 {
 		response["stop_limit_created"] = true
 		response["stop_price"] = req.StopPrice
 		response["limit_price"] = req.LimitPrice

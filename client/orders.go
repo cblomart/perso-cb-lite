@@ -176,22 +176,22 @@ func (c *CoinbaseClient) checkBalance(side, size, price string) error {
 }
 
 // createOrder is a helper function to create orders with common logic
-func (c *CoinbaseClient) createOrder(side, size, price, stopPrice, limitPrice string) (*Order, error) {
+func (c *CoinbaseClient) createOrder(side, size string, price, stopPrice, limitPrice float64) (*Order, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	// Determine which price to use for balance check
 	balanceCheckPrice := price
-	if stopPrice != "" && limitPrice != "" {
+	if stopPrice > 0 && limitPrice > 0 {
 		// For stop-limit orders, use limit_price for balance calculation
 		balanceCheckPrice = limitPrice
-		c.logger.Printf("Placing %s stop-limit order: size=%s, stop_price=%s, limit_price=%s", side, size, stopPrice, limitPrice)
+		c.logger.Printf("Placing %s stop-limit order: size=%s, stop_price=%.8f, limit_price=%.8f", side, size, stopPrice, limitPrice)
 	} else {
-		c.logger.Printf("Placing %s limit order: size=%s, price=%s", side, size, price)
+		c.logger.Printf("Placing %s limit order: size=%s, price=%.8f", side, size, price)
 	}
 
 	// Check balance before placing order
-	if err := c.checkBalance(side, size, balanceCheckPrice); err != nil {
+	if err := c.checkBalance(side, size, fmt.Sprintf("%.8f", balanceCheckPrice)); err != nil {
 		return nil, fmt.Errorf("balance check failed: %w", err)
 	}
 
@@ -201,8 +201,8 @@ func (c *CoinbaseClient) createOrder(side, size, price, stopPrice, limitPrice st
 	}
 
 	// Configure order type
-	if stopPrice != "" && limitPrice != "" {
-		c.logger.Printf("Creating stop limit order: stop=%s, limit=%s", stopPrice, limitPrice)
+	if stopPrice > 0 && limitPrice > 0 {
+		c.logger.Printf("Creating stop limit order: stop=%.8f, limit=%.8f", stopPrice, limitPrice)
 
 		// Determine stop direction based on order side
 		stopDirection := "STOP_DIRECTION_STOP_DOWN" // Default for SELL
@@ -217,8 +217,8 @@ func (c *CoinbaseClient) createOrder(side, size, price, stopPrice, limitPrice st
 			StopDirection string `json:"stop_direction"`
 		}{
 			BaseSize:      size,
-			LimitPrice:    limitPrice,
-			StopPrice:     stopPrice,
+			LimitPrice:    fmt.Sprintf("%.8f", limitPrice),
+			StopPrice:     fmt.Sprintf("%.8f", stopPrice),
 			StopDirection: stopDirection,
 		}
 	} else {
@@ -227,7 +227,7 @@ func (c *CoinbaseClient) createOrder(side, size, price, stopPrice, limitPrice st
 			LimitPrice string `json:"limit_price"`
 		}{
 			BaseSize:   size,
-			LimitPrice: price,
+			LimitPrice: fmt.Sprintf("%.8f", price),
 		}
 	}
 
@@ -272,14 +272,14 @@ func (c *CoinbaseClient) createOrder(side, size, price, stopPrice, limitPrice st
 		Side:      side,
 		Type:      "LIMIT",
 		Size:      size,
-		Price:     price,
+		Price:     fmt.Sprintf("%.8f", price),
 		Status:    "PENDING",
 		CreatedAt: time.Now(),
 	}
 
-	if stopPrice != "" && limitPrice != "" {
-		order.StopPrice = stopPrice
-		order.LimitPrice = limitPrice
+	if stopPrice > 0 && limitPrice > 0 {
+		order.StopPrice = fmt.Sprintf("%.8f", stopPrice)
+		order.LimitPrice = fmt.Sprintf("%.8f", limitPrice)
 		order.Type = "STOP_LIMIT"
 	}
 
@@ -288,12 +288,12 @@ func (c *CoinbaseClient) createOrder(side, size, price, stopPrice, limitPrice st
 }
 
 // BuyBTC places a buy order for the configured trading pair, optionally with stop limit
-func (c *CoinbaseClient) BuyBTC(size, price, stopPrice, limitPrice string) (*Order, error) {
+func (c *CoinbaseClient) BuyBTC(size string, price, stopPrice, limitPrice float64) (*Order, error) {
 	return c.createOrder("BUY", size, price, stopPrice, limitPrice)
 }
 
 // SellBTC places a sell order for the configured trading pair, optionally with stop limit
-func (c *CoinbaseClient) SellBTC(size, price, stopPrice, limitPrice string) (*Order, error) {
+func (c *CoinbaseClient) SellBTC(size string, price, stopPrice, limitPrice float64) (*Order, error) {
 	return c.createOrder("SELL", size, price, stopPrice, limitPrice)
 }
 

@@ -30,9 +30,9 @@ type Order struct {
 // TradingRequest represents a unified trading request with optional stop limit
 type TradingRequest struct {
 	Size       string  `json:"size"`
-	Price      string  `json:"price"`
-	StopPrice  string  `json:"stop_price,omitempty"`
-	LimitPrice string  `json:"limit_price,omitempty"`
+	Price      float64 `json:"price"`
+	StopPrice  float64 `json:"stop_price,omitempty"`
+	LimitPrice float64 `json:"limit_price,omitempty"`
 	Percentage float64 `json:"percentage,omitempty"`
 }
 
