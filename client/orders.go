@@ -578,9 +578,9 @@ func (c *CoinbaseClient) GetSignalWithCandles(candleCount int, granularity strin
 
 // GetSignalLightweight is optimized for background polling - uses 5-minute candles with fewer data points
 func (c *CoinbaseClient) GetSignalLightweight() (*SignalResponse, error) {
-	// Use 5-minute candles with fewer data points for lightweight polling
-	// 144 candles = 12 hours of data (sufficient for most indicators, more responsive)
-	return c.GetSignalWithCandles(144, "FIVE_MINUTE")
+	// Use 5-minute candles with more data points for better dip detection
+	// 288 candles = 24 hours of data (more comprehensive for dip detection)
+	return c.GetSignalWithCandles(288, "FIVE_MINUTE")
 }
 
 // GetMarketState retrieves comprehensive market state information

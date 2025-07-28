@@ -115,7 +115,7 @@ func NewCoinbaseClient(tradingPair string, webhookURL string, webhookMaxRetries 
 		webhookTimeout:      webhookTimeout,
 		httpClient:          httpClient,
 		startTime:           time.Now(),
-		trendChangeCooldown: 5 * time.Minute, // 5 minutes between trend change signals
+		trendChangeCooldown: 2 * time.Minute, // Reduced from 5 to 2 minutes for more sensitive dip detection
 	}, nil
 }
 
@@ -387,6 +387,25 @@ func (c *CoinbaseClient) detectTrendChange(indicators TechnicalIndicators) (bool
 	// Determine current trend state based on indicators
 	currentTrend := c.determineTrendState(indicators)
 
+	// Check for immediate dip detection (more sensitive)
+	dipDetected, dipTriggers := c.detectImmediateDip(indicators)
+	if dipDetected {
+		// Check shorter cooldown for dips (2 minutes instead of 5)
+		if time.Since(c.lastSignalTime) < 2*time.Minute {
+			if os.Getenv("LOG_LEVEL") == "DEBUG" {
+				c.logger.Printf("🕐 Dip detected but cooldown active (last signal: %v ago)",
+					time.Since(c.lastSignalTime))
+			}
+		} else {
+			// Valid dip detected
+			c.lastSignalTime = time.Now()
+			if os.Getenv("LOG_LEVEL") == "DEBUG" {
+				c.logger.Printf("📉 Immediate dip detected: %v", dipTriggers)
+			}
+			return true, "bearish", dipTriggers
+		}
+	}
+
 	// Check if this is a significant change from the last known state
 	if c.lastTrendState == "neutral" {
 		// First signal - only send if we have a clear trend
@@ -401,8 +420,8 @@ func (c *CoinbaseClient) detectTrendChange(indicators TechnicalIndicators) (bool
 
 	// Check if trend has changed
 	if currentTrend != c.lastTrendState && currentTrend != "neutral" {
-		// Check cooldown period to avoid spam
-		if time.Since(c.lastSignalTime) < c.trendChangeCooldown {
+		// Check cooldown period to avoid spam (reduced to 3 minutes)
+		if time.Since(c.lastSignalTime) < 3*time.Minute {
 			if os.Getenv("LOG_LEVEL") == "DEBUG" {
 				c.logger.Printf("🕐 Trend change detected but cooldown active (last signal: %v ago)",
 					time.Since(c.lastSignalTime))
@@ -424,6 +443,43 @@ func (c *CoinbaseClient) detectTrendChange(indicators TechnicalIndicators) (bool
 	}
 
 	return false, currentTrend, nil
+}
+
+// detectImmediateDip detects immediate price dips that should trigger alerts
+func (c *CoinbaseClient) detectImmediateDip(indicators TechnicalIndicators) (bool, []string) {
+	var triggers []string
+
+	// Immediate price drop detection (more sensitive)
+	if indicators.PriceDropPct4h < -3 { // Reduced from -5% to -3%
+		triggers = append(triggers, "IMMEDIATE_PRICE_DROP")
+	}
+
+	// RSI oversold condition (more sensitive)
+	if indicators.RSI < 35 { // Reduced from 40 to 35
+		triggers = append(triggers, "RSI_OVERSOLD")
+	}
+
+	// MACD bearish crossover (immediate)
+	if indicators.MACD < indicators.SignalLine && indicators.MACD < -0.1 {
+		triggers = append(triggers, "MACD_BEARISH_CROSSOVER")
+	}
+
+	// EMA bearish crossover (immediate)
+	if indicators.EMA12 < indicators.EMA26 {
+		triggers = append(triggers, "EMA_BEARISH_CROSSOVER")
+	}
+
+	// Volume spike with price drop
+	if indicators.VolumeSpike && indicators.PriceDropPct4h < -2 {
+		triggers = append(triggers, "VOLUME_SPIKE_WITH_DROP")
+	}
+
+	// Strong bearish momentum
+	if indicators.ADX > 20 && indicators.MACD < indicators.SignalLine {
+		triggers = append(triggers, "STRONG_BEARISH_MOMENTUM")
+	}
+
+	return len(triggers) > 0, triggers
 }
 
 // calculateTriggers calculates the relevant triggers for the current trend
@@ -475,44 +531,44 @@ func (c *CoinbaseClient) determineTrendState(indicators TechnicalIndicators) str
 	bearishCount := 0
 	bullishCount := 0
 
-	// Bearish signals
-	if indicators.MACD < indicators.SignalLine && indicators.MACD < 0 {
+	// Bearish signals (more sensitive thresholds)
+	if indicators.MACD < indicators.SignalLine && indicators.MACD < -0.05 { // Reduced threshold
 		bearishCount++
 	}
 	if indicators.EMA12 < indicators.EMA26 {
 		bearishCount++
 	}
-	if indicators.RSI < 40 {
+	if indicators.RSI < 35 { // Reduced from 40 to 35
 		bearishCount++
 	}
-	if indicators.PriceDropPct4h < -5 {
+	if indicators.PriceDropPct4h < -3 { // Reduced from -5 to -3
 		bearishCount++
 	}
-	if indicators.CurrentPrice < indicators.EMA200 && indicators.RSI < 45 {
+	if indicators.CurrentPrice < indicators.EMA200 && indicators.RSI < 40 { // Reduced RSI threshold
 		bearishCount++
 	}
 
 	// Bullish signals (opposite conditions)
-	if indicators.MACD > indicators.SignalLine && indicators.MACD > 0 {
+	if indicators.MACD > indicators.SignalLine && indicators.MACD > 0.05 {
 		bullishCount++
 	}
 	if indicators.EMA12 > indicators.EMA26 {
 		bullishCount++
 	}
-	if indicators.RSI > 60 {
+	if indicators.RSI > 65 { // Reduced from 60 to 65 for more precision
 		bullishCount++
 	}
-	if indicators.PriceDropPct4h > 5 {
+	if indicators.PriceDropPct4h > 3 { // Reduced from 5 to 3
 		bullishCount++
 	}
-	if indicators.CurrentPrice > indicators.EMA200 && indicators.RSI > 55 {
+	if indicators.CurrentPrice > indicators.EMA200 && indicators.RSI > 60 { // Increased RSI threshold
 		bullishCount++
 	}
 
-	// Determine trend based on signal strength
-	if bearishCount >= 3 {
+	// Determine trend based on signal strength (reduced requirements)
+	if bearishCount >= 2 { // Reduced from 3 to 2
 		return "bearish"
-	} else if bullishCount >= 3 {
+	} else if bullishCount >= 2 { // Reduced from 3 to 2
 		return "bullish"
 	} else {
 		return "neutral"
