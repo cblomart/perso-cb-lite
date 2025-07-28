@@ -280,6 +280,11 @@ func checkSignal(client *client.CoinbaseClient) {
 		log.Printf("🔍 Checking for trading signals (lightweight mode)...")
 	}
 
+	// Track asset value before checking signals
+	if err := client.TrackAssetValue(); err != nil {
+		log.Printf("⚠️ Failed to track asset value: %v", err)
+	}
+
 	signal, err := client.GetSignalLightweight() // Uses lightweight signal
 	if err != nil {
 		log.Printf("❌ Signal check failed: %v", err)

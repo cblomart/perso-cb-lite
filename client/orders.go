@@ -705,14 +705,23 @@ func (c *CoinbaseClient) GetGraphData(period string) (*GraphData, error) {
 		trades = []Trade{} // Use empty slice
 	}
 
-	// Calculate account values over time (optional - continue even if it fails)
-	accountValues, err := c.CalculateAccountValuesOverTime(candles, trades, startTime, endTime)
-	if err != nil {
-		// Log the error but continue with empty account values
-		if os.Getenv("LOG_LEVEL") == "DEBUG" {
-			c.logger.Printf("Warning: Failed to calculate account values: %v", err)
+	// Calculate account values over time (use in-memory tracking)
+	accountValues := c.GetAssetValueHistoryForPeriod(startTime, endTime)
+	if len(accountValues) == 0 {
+		// Fallback to calculated values if no in-memory data
+		accountValues, err = c.CalculateAccountValuesOverTime(candles, trades, startTime, endTime)
+		if err != nil {
+			// Log the error but continue with empty account values
+			if os.Getenv("LOG_LEVEL") == "DEBUG" {
+				c.logger.Printf("Warning: Failed to calculate account values: %v", err)
+			}
+			accountValues = []AccountValue{} // Use empty slice
 		}
-		accountValues = []AccountValue{} // Use empty slice
+	} else {
+		// Log successful use of in-memory asset values
+		if os.Getenv("LOG_LEVEL") == "DEBUG" {
+			c.logger.Printf("Using %d in-memory asset value points", len(accountValues))
+		}
 	}
 
 	// Calculate technical indicators from candles

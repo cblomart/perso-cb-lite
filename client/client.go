@@ -12,7 +12,9 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -38,6 +40,9 @@ type CoinbaseClient struct {
 	lastTrendState      string // "bullish", "bearish", or "neutral"
 	lastSignalTime      time.Time
 	trendChangeCooldown time.Duration // Minimum time between trend change signals
+	// Asset value tracking
+	assetValueHistory []AccountValue
+	assetValueMutex   sync.RWMutex
 }
 
 // NewCoinbaseClient creates a new Coinbase client using ECDSA private key
@@ -112,6 +117,99 @@ func NewCoinbaseClient(tradingPair string, webhookURL string, webhookMaxRetries 
 		startTime:           time.Now(),
 		trendChangeCooldown: 5 * time.Minute, // 5 minutes between trend change signals
 	}, nil
+}
+
+// TrackAssetValue adds the current asset value to the historical tracking
+func (c *CoinbaseClient) TrackAssetValue() error {
+	// Get current account balances
+	accounts, err := c.GetAccounts()
+	if err != nil {
+		return fmt.Errorf("failed to get current accounts: %w", err)
+	}
+
+	// Find BTC and USDC accounts
+	var btcAccount, usdcAccount *Account
+	for i := range accounts {
+		if accounts[i].Currency == "BTC" {
+			btcAccount = &accounts[i]
+		} else if accounts[i].Currency == "USDC" {
+			usdcAccount = &accounts[i]
+		}
+	}
+
+	if btcAccount == nil || usdcAccount == nil {
+		return fmt.Errorf("missing BTC or USDC accounts")
+	}
+
+	// Get current BTC price for USD calculation
+	orderBook, err := c.GetOrderBook(1)
+	if err != nil {
+		return fmt.Errorf("failed to get current price: %w", err)
+	}
+
+	var currentPrice float64
+	if len(orderBook.Bids) > 0 {
+		currentPrice, _ = strconv.ParseFloat(orderBook.Bids[0].Price, 64)
+	} else {
+		return fmt.Errorf("no current price available")
+	}
+
+	// Calculate total USD value
+	btcBalance, _ := strconv.ParseFloat(btcAccount.AvailableBalance, 64)
+	usdcBalance, _ := strconv.ParseFloat(usdcAccount.AvailableBalance, 64)
+	totalUSD := usdcBalance + (btcBalance * currentPrice)
+
+	// Create account value entry
+	accountValue := AccountValue{
+		Timestamp: time.Now().Unix(),
+		BTC:       btcBalance,
+		USDC:      usdcBalance,
+		TotalUSD:  totalUSD,
+	}
+
+	// Add to history with thread safety
+	c.assetValueMutex.Lock()
+	defer c.assetValueMutex.Unlock()
+
+	// Keep only last 1000 entries to prevent memory bloat
+	if len(c.assetValueHistory) >= 1000 {
+		c.assetValueHistory = c.assetValueHistory[1:]
+	}
+
+	c.assetValueHistory = append(c.assetValueHistory, accountValue)
+
+	if os.Getenv("LOG_LEVEL") == "DEBUG" {
+		c.logger.Printf("Asset value tracked: $%.2f (BTC: %.8f, USDC: %.2f)",
+			totalUSD, btcBalance, usdcBalance)
+	}
+
+	return nil
+}
+
+// GetAssetValueHistory returns the historical asset values
+func (c *CoinbaseClient) GetAssetValueHistory() []AccountValue {
+	c.assetValueMutex.RLock()
+	defer c.assetValueMutex.RUnlock()
+
+	// Return a copy to prevent race conditions
+	result := make([]AccountValue, len(c.assetValueHistory))
+	copy(result, c.assetValueHistory)
+	return result
+}
+
+// GetAssetValueHistoryForPeriod returns asset values within a specific time period
+func (c *CoinbaseClient) GetAssetValueHistoryForPeriod(startTime, endTime time.Time) []AccountValue {
+	c.assetValueMutex.RLock()
+	defer c.assetValueMutex.RUnlock()
+
+	var result []AccountValue
+	for _, av := range c.assetValueHistory {
+		avTime := time.Unix(av.Timestamp, 0)
+		if avTime.After(startTime) && avTime.Before(endTime) {
+			result = append(result, av)
+		}
+	}
+	return result
 }
 
 // GetTradingPair returns the configured trading pair
