@@ -38,6 +38,11 @@ func (c *CoinbaseClient) GetAccountsWithLogging(enableLogging bool) ([]Account, 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// If logging is disabled, mark this as a health check request
+	if !enableLogging {
+		ctx = context.WithValue(ctx, healthCheckKey, true)
+	}
+
 	// Extract base and quote currencies from trading pair
 	parts := strings.Split(c.tradingPair, "-")
 	if len(parts) != 2 {

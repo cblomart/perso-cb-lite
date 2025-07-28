@@ -27,7 +27,7 @@ func (c *CoinbaseClient) makeRequest(ctx context.Context, method, endpoint strin
 
 	fullPath := "/api/v3/brokerage" + path
 
-	jwt, err := c.createJWT(method, fullPath)
+	jwt, err := c.createJWT(ctx, method, fullPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create JWT: %w", err)
 	}
@@ -58,7 +58,7 @@ func (c *CoinbaseClient) makeRequest(ctx context.Context, method, endpoint strin
 	}
 
 	// Debug: Log request details (skip for health checks)
-	if os.Getenv("LOG_LEVEL") == "DEBUG" && endpoint != "/health" {
+	if os.Getenv("LOG_LEVEL") == "DEBUG" && endpoint != "/health" && ctx.Value(healthCheckKey) != true {
 		c.logger.Printf("=== REQUEST DUMP ===")
 		c.logger.Printf("Method: %s", method)
 		c.logger.Printf("URL: %s", url)
@@ -95,28 +95,27 @@ func (c *CoinbaseClient) makeRequest(ctx context.Context, method, endpoint strin
 	}
 
 	// Debug: Log response details (skip for health checks)
-	if os.Getenv("LOG_LEVEL") == "DEBUG" && endpoint != "/health" {
+	if os.Getenv("LOG_LEVEL") == "DEBUG" && endpoint != "/health" && ctx.Value(healthCheckKey) != true {
 		c.logger.Printf("=== RESPONSE DUMP ===")
 		c.logger.Printf("Status: %s", resp.Status)
+		c.logger.Printf("Status Code: %d", resp.StatusCode)
 		c.logger.Printf("Headers:")
 		for key, values := range resp.Header {
 			for _, value := range values {
 				c.logger.Printf("  %s: %s", key, value)
 			}
 		}
-		if len(respBody) > 0 {
-			// Try to pretty print JSON, fallback to raw if not JSON
-			var prettyJSON interface{}
-			if json.Unmarshal(respBody, &prettyJSON) == nil {
-				bodyPretty, _ := json.MarshalIndent(prettyJSON, "", "  ")
-				c.logger.Printf("Body: %s", string(bodyPretty))
-			} else {
-				c.logger.Printf("Body: %s", string(respBody))
+
+		// Read and log response body if present
+		if resp.Body != nil {
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err == nil && len(bodyBytes) > 0 {
+				c.logger.Printf("Body: %s", string(bodyBytes))
 			}
-		} else {
-			c.logger.Printf("Body: <empty>")
+			// Recreate the response body for potential future use
+			resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 		}
-		c.logger.Printf("===================")
+		c.logger.Printf("==================")
 	}
 
 	// Check status code

@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/sha256"
@@ -40,7 +41,7 @@ func generateNonce() (string, error) {
 }
 
 // createJWT creates a JWT token signed with ECDSA (ES256)
-func (c *CoinbaseClient) createJWT(method, endpoint string) (string, error) {
+func (c *CoinbaseClient) createJWT(ctx context.Context, method, endpoint string) (string, error) {
 	nonce, err := generateNonce()
 	if err != nil {
 		return "", fmt.Errorf("failed to generate nonce: %w", err)
@@ -104,9 +105,9 @@ func (c *CoinbaseClient) createJWT(method, endpoint string) (string, error) {
 
 	jwt := payload + "." + signatureB64
 
-	// Debug output (only in DEBUG log level)
+	// Debug output (only in DEBUG log level and not for health checks)
 	logLevel := os.Getenv("LOG_LEVEL")
-	if logLevel == "DEBUG" {
+	if logLevel == "DEBUG" && ctx.Value(healthCheckKey) != true {
 		headerPretty, _ := json.MarshalIndent(header, "", "  ")
 		claimsPretty, _ := json.MarshalIndent(claims, "", "  ")
 		c.logger.Printf("JWT Header: %s", string(headerPretty))

@@ -16,6 +16,11 @@ import (
 	"time"
 )
 
+// Context key for health check tracking
+type contextKey string
+
+const healthCheckKey contextKey = "health_check"
+
 // CoinbaseClient represents a custom Coinbase Advanced Trade API client
 type CoinbaseClient struct {
 	logger            *log.Logger
