@@ -5,13 +5,24 @@ A simple Go API for trading cryptocurrencies on Coinbase.
 ## What it does
 
 - Buy and sell crypto with market orders
-- Buy/sell percentage of available balance with `percentage` setting (includes 1% fee buffer)
+- Buy/sell percentage of available balance with `percentage` setting (includes actual Coinbase fees)
 - Check your account balance
 - View and cancel orders (individual or all)
 - Get market data (candles) for technical analysis
 - View current market state (bid/ask, spread, order book)
 - Automatic balance validation before placing orders
 - Secure API with rate limiting
+
+### Fee Structure
+
+The API automatically accounts for Coinbase's actual fee structure:
+- **0.50% spread** per transaction
+- **Tiered flat fees**:
+  - $0.99 for trades up to $10
+  - $1.49 for trades $10–$25
+  - $1.99 for trades $25–$50
+  - $2.99 for trades $50–$200
+  - 1.49% for trades over $200
 
 ## Quick Start
 
@@ -88,7 +99,7 @@ curl -X POST http://localhost:8080/api/v1/buy \
   -H "X-API-Key: YOUR_ACCESS_KEY" \
   -d '{"size": "0.001", "price": 45000.00}'
 
-# Buy 50% of available USDC at $45,000 (includes 1% fee buffer)
+# Buy 50% of available USDC at $45,000 (includes actual Coinbase fees)
 curl -X POST http://localhost:8080/api/v1/buy \
   -H "Content-Type: application/json" \
   -H "X-API-Key: YOUR_ACCESS_KEY" \
@@ -100,7 +111,7 @@ curl -X POST http://localhost:8080/api/v1/sell \
   -H "X-API-Key: YOUR_ACCESS_KEY" \
   -d '{"size": "0.001", "price": 50000.00}'
 
-# Sell 25% of available BTC at $50,000 (includes 1% fee buffer)
+# Sell 25% of available BTC at $50,000 (includes actual Coinbase fees)
 curl -X POST http://localhost:8080/api/v1/sell \
   -H "Content-Type: application/json" \
   -H "X-API-Key: YOUR_ACCESS_KEY" \

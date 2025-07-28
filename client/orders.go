@@ -53,8 +53,32 @@ type OrdersResponse struct {
 	Orders []CoinbaseOrder `json:"orders"`
 }
 
+// calculateCoinbaseFee calculates the total fee for a given trade amount
+func (c *CoinbaseClient) calculateCoinbaseFee(tradeAmount float64) float64 {
+	// 0.50% spread per transaction
+	spreadFee := tradeAmount * 0.005
+
+	// Flat fee based on trade amount
+	var flatFee float64
+	switch {
+	case tradeAmount <= 10:
+		flatFee = 0.99
+	case tradeAmount <= 25:
+		flatFee = 1.49
+	case tradeAmount <= 50:
+		flatFee = 1.99
+	case tradeAmount <= 200:
+		flatFee = 2.99
+	default:
+		// Trades over $200 incur a 1.49% fee
+		flatFee = tradeAmount * 0.0149
+	}
+
+	return spreadFee + flatFee
+}
+
 // CalculateOrderSizeByPercentage calculates the order size based on a percentage of available balance
-// Includes 1% fee buffer to ensure the order can be placed successfully
+// Includes actual Coinbase fees (0.50% spread + tiered flat fees) to ensure the order can be placed successfully
 func (c *CoinbaseClient) CalculateOrderSizeByPercentage(side string, percentage float64, price string) (string, error) {
 	// Validate percentage
 	if percentage <= 0 || percentage > 100 {
@@ -89,13 +113,12 @@ func (c *CoinbaseClient) CalculateOrderSizeByPercentage(side string, percentage 
 		return "", fmt.Errorf("no available %s balance", currency)
 	}
 
-	// Calculate the amount to use based on percentage, with 1% fee buffer
-	// Apply fee buffer directly to the amount to avoid double calculation
-	amountToUse := availableBalance * (percentage / 100.0) * 0.99 // 1% fee buffer
+	// Calculate the base amount to use based on percentage
+	baseAmount := availableBalance * (percentage / 100.0)
 
 	var orderSize float64
 	if side == "BUY" {
-		// For BUY orders: order_size = (available_quote_currency * percentage) / price
+		// For BUY orders, we need to calculate the trade value first
 		priceFloat, err := strconv.ParseFloat(price, 64)
 		if err != nil {
 			return "", fmt.Errorf("invalid price format: %w", err)
@@ -103,16 +126,48 @@ func (c *CoinbaseClient) CalculateOrderSizeByPercentage(side string, percentage 
 		if priceFloat <= 0 {
 			return "", fmt.Errorf("price must be greater than 0")
 		}
-		orderSize = amountToUse / priceFloat
-	} else {
-		// For SELL orders: order_size = available_base_currency * percentage
-		orderSize = amountToUse
-	}
 
-	// Log the calculation for transparency (only in debug mode)
-	if os.Getenv("LOG_LEVEL") == "DEBUG" {
-		c.logger.Printf("Percentage calculation: %.2f%% requested, amount after 1%% fee buffer: %.8f %s, order size: %.8f",
-			percentage, amountToUse, currency, orderSize)
+		// Calculate the maximum BTC we can buy with the available amount
+		maxBTC := baseAmount / priceFloat
+		tradeValue := maxBTC * priceFloat
+
+		// Calculate the fee for this trade
+		fee := c.calculateCoinbaseFee(tradeValue)
+
+		// Adjust the trade value to account for fees
+		adjustedTradeValue := tradeValue - fee
+		orderSize = adjustedTradeValue / priceFloat
+
+		// Log the calculation for transparency (only in debug mode)
+		if os.Getenv("LOG_LEVEL") == "DEBUG" {
+			c.logger.Printf("BUY calculation: %.2f%% requested, base amount: %.8f %s, trade value: %.2f, fee: %.2f, adjusted trade value: %.2f, order size: %.8f BTC",
+				percentage, baseAmount, currency, tradeValue, fee, adjustedTradeValue, orderSize)
+		}
+	} else {
+		// For SELL orders, calculate the trade value and adjust for fees
+		priceFloat, err := strconv.ParseFloat(price, 64)
+		if err != nil {
+			return "", fmt.Errorf("invalid price format: %w", err)
+		}
+		if priceFloat <= 0 {
+			return "", fmt.Errorf("price must be greater than 0")
+		}
+
+		// Calculate the trade value
+		tradeValue := baseAmount * priceFloat
+
+		// Calculate the fee for this trade
+		fee := c.calculateCoinbaseFee(tradeValue)
+
+		// Adjust the BTC amount to account for fees
+		adjustedBTC := baseAmount - (fee / priceFloat)
+		orderSize = adjustedBTC
+
+		// Log the calculation for transparency (only in debug mode)
+		if os.Getenv("LOG_LEVEL") == "DEBUG" {
+			c.logger.Printf("SELL calculation: %.2f%% requested, base amount: %.8f %s, trade value: %.2f, fee: %.2f, adjusted BTC: %.8f, order size: %.8f BTC",
+				percentage, baseAmount, currency, tradeValue, fee, adjustedBTC, orderSize)
+		}
 	}
 
 	// Format to 8 decimal places (standard for crypto)
