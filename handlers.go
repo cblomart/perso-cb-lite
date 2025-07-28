@@ -120,8 +120,8 @@ func (h *Handlers) SellBTC(c *gin.Context) {
 
 	// Handle percentage-based order size calculation
 	if req.Percentage > 0 {
-		// For SELL orders, we don't need price for percentage calculation (we sell percentage of available BTC)
-		calculatedSize, err := h.client.CalculateOrderSizeByPercentage("SELL", req.Percentage, "0") // Price not used for SELL percentage calculation
+		// For SELL orders, we need the price to calculate fees correctly
+		calculatedSize, err := h.client.CalculateOrderSizeByPercentage("SELL", req.Percentage, fmt.Sprintf("%.8f", req.Price))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Failed to calculate order size by percentage",
