@@ -488,7 +488,7 @@ func (h *Handlers) GetGraph(c *gin.Context) {
 	}
 
 	// Generate PNG chart with dual Y-axes
-	pngData, err := h.client.GenerateChartJSPNG(graphData)
+	pngData, err := h.client.GenerateChartPNG(graphData)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to generate chart",
@@ -497,7 +497,11 @@ func (h *Handlers) GetGraph(c *gin.Context) {
 		return
 	}
 
-	// Set content type to HTML (temporary - will be PNG in production)
-	c.Header("Content-Type", "text/html; charset=utf-8")
-	c.Data(http.StatusOK, "text/html; charset=utf-8", pngData)
+	// Set headers for PNG image
+	c.Header("Content-Type", "image/png")
+	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=btc-usdc-chart-%s.png", period))
+	c.Header("Cache-Control", "public, max-age=300") // Cache for 5 minutes
+
+	// Return PNG data
+	c.Data(http.StatusOK, "image/png", pngData)
 }
