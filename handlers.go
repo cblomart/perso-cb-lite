@@ -421,18 +421,18 @@ func (h *Handlers) GetCandles(c *gin.Context) {
 
 // GetMarketState retrieves current market state with bid/ask and order book
 func (h *Handlers) GetMarketState(c *gin.Context) {
-	// Get depth parameter (default to level 2)
-	depthStr := c.DefaultQuery("depth", "2")
-	depth, err := strconv.Atoi(depthStr)
-	if err != nil || depth < 1 || depth > 3 {
+	// Get level parameter (default to level 2)
+	levelStr := c.DefaultQuery("level", "2")
+	level, err := strconv.Atoi(levelStr)
+	if err != nil || level < 1 || level > 3 {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "Invalid depth parameter",
-			"message": "Depth must be 1, 2, or 3 (1=best bid/ask, 2=top 50, 3=full order book)",
+			"error":   "Invalid level parameter",
+			"message": "Level must be 1, 2, or 3 (1=best bid/ask, 2=top 50, 3=full order book)",
 		})
 		return
 	}
 
-	marketState, err := h.client.GetMarketState(depth)
+	marketState, err := h.client.GetMarketState(level)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to fetch market state",
@@ -451,7 +451,7 @@ func (h *Handlers) GetMarketState(c *gin.Context) {
 		"volume_24h":     marketState.Volume24h,
 		"order_book":     marketState.OrderBook,
 		"timestamp":      marketState.Timestamp,
-		"depth":          depth,
+		"level":          level,
 	})
 }
 
