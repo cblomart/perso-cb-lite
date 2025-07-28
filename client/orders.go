@@ -695,19 +695,39 @@ func (c *CoinbaseClient) GetGraphData(period string) (*GraphData, error) {
 		return nil, fmt.Errorf("failed to fetch candles: %w", err)
 	}
 
+	// Fetch trade history (optional - continue even if it fails)
+	trades, err := c.GetTradeHistory(startTime, endTime)
+	if err != nil {
+		// Log the error but continue with empty trades
+		if os.Getenv("LOG_LEVEL") == "DEBUG" {
+			c.logger.Printf("Warning: Failed to fetch trade history: %v", err)
+		}
+		trades = []Trade{} // Use empty slice
+	}
+
+	// Calculate account values over time (optional - continue even if it fails)
+	accountValues, err := c.CalculateAccountValuesOverTime(candles, trades, startTime, endTime)
+	if err != nil {
+		// Log the error but continue with empty account values
+		if os.Getenv("LOG_LEVEL") == "DEBUG" {
+			c.logger.Printf("Warning: Failed to calculate account values: %v", err)
+		}
+		accountValues = []AccountValue{} // Use empty slice
+	}
+
 	// Calculate technical indicators from candles
 	indicators := c.CalculateIndicatorsForGraph(candles)
 
-	// Create simplified summary from candles only
-	summary := c.CalculateGraphSummaryFromCandles(candles)
+	// Create summary from all available data
+	summary := c.CalculateGraphSummary(candles, trades, accountValues)
 
 	graphData := &GraphData{
 		Period:        period,
 		StartTime:     startTime.Unix(),
 		EndTime:       endTime.Unix(),
 		Candles:       candles,
-		Trades:        []Trade{},        // Empty - we don't need trades for basic chart
-		AccountValues: []AccountValue{}, // Empty - we don't need account values for basic chart
+		Trades:        trades,
+		AccountValues: accountValues,
 		Indicators:    indicators,
 		Summary:       summary,
 	}
@@ -741,6 +761,151 @@ func (c *CoinbaseClient) GetGraphData(period string) (*GraphData, error) {
 	}
 
 	return graphData, nil
+}
+
+// GetTradeHistory retrieves completed trades within a time range
+func (c *CoinbaseClient) GetTradeHistory(startTime, endTime time.Time) ([]Trade, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Log trade history fetching in debug mode
+	if os.Getenv("LOG_LEVEL") == "DEBUG" {
+		c.logger.Printf("Fetching trade history from %s to %s...",
+			startTime.Format("2006-01-02"), endTime.Format("2006-01-02"))
+	}
+
+	// Use the fills endpoint to get completed trades
+	endpoint := fmt.Sprintf("/fills?product_id=%s&start_sequence_timestamp=%d&end_sequence_timestamp=%d&limit=100",
+		c.tradingPair,
+		startTime.Unix(), endTime.Unix())
+
+	respBody, err := c.makeRequest(ctx, "GET", endpoint, nil)
+	if err != nil {
+		c.logger.Printf("Error fetching trade history: %v", err)
+		return nil, fmt.Errorf("failed to fetch trade history: %w", err)
+	}
+
+	var resp struct {
+		Fills []struct {
+			EntryID      string `json:"entry_id"`
+			TradeID      string `json:"trade_id"`
+			OrderID      string `json:"order_id"`
+			ProductID    string `json:"product_id"`
+			Side         string `json:"side"`
+			Size         string `json:"size"`
+			Price        string `json:"price"`
+			Fee          string `json:"fee"`
+			CreatedAt    string `json:"created_at"`
+			UserID       string `json:"user_id"`
+			ProfileID    string `json:"profile_id"`
+			LiquidityInd string `json:"liquidity_ind"`
+			UsdValue     string `json:"usd_value"`
+		} `json:"fills"`
+	}
+
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal trade history: %w", err)
+	}
+
+	var trades []Trade
+	for _, fill := range resp.Fills {
+		// Parse timestamps
+		createdAt, _ := time.Parse(time.RFC3339, fill.CreatedAt)
+
+		trades = append(trades, Trade{
+			ID:          fill.TradeID,
+			ProductID:   fill.ProductID,
+			Side:        fill.Side,
+			Size:        fill.Size,
+			Price:       fill.Price,
+			FilledSize:  fill.Size,
+			FilledValue: fill.UsdValue,
+			Fee:         fill.Fee,
+			CreatedAt:   createdAt.Unix(),
+			ExecutedAt:  createdAt.Unix(),
+		})
+	}
+
+	// Log successful trade history fetch in debug mode
+	if os.Getenv("LOG_LEVEL") == "DEBUG" {
+		c.logger.Printf("Successfully fetched %d trades", len(trades))
+	}
+
+	return trades, nil
+}
+
+// CalculateAccountValuesOverTime calculates account values at each candle timestamp
+func (c *CoinbaseClient) CalculateAccountValuesOverTime(candles []Candle, trades []Trade, startTime, endTime time.Time) ([]AccountValue, error) {
+	// Get current account balances
+	accounts, err := c.GetAccounts()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current accounts: %w", err)
+	}
+
+	// Find BTC and USDC accounts
+	var btcAccount, usdcAccount *Account
+	for i := range accounts {
+		if accounts[i].Currency == "BTC" {
+			btcAccount = &accounts[i]
+		} else if accounts[i].Currency == "USDC" {
+			usdcAccount = &accounts[i]
+		}
+	}
+
+	if btcAccount == nil || usdcAccount == nil {
+		return nil, fmt.Errorf("missing BTC or USDC accounts")
+	}
+
+	// Calculate account values at each candle timestamp
+	var accountValues []AccountValue
+
+	// Start with current balances and work backwards
+	currentBTC, _ := strconv.ParseFloat(btcAccount.AvailableBalance, 64)
+	currentUSDC, _ := strconv.ParseFloat(usdcAccount.AvailableBalance, 64)
+
+	// Process trades in reverse chronological order to calculate historical balances
+	tradeIndex := len(trades) - 1
+
+	for i := len(candles) - 1; i >= 0; i-- {
+		candle := candles[i]
+		// Parse the start time from the candle
+		candleTime, _ := time.Parse(time.RFC3339, candle.Start)
+
+		// Process trades that happened before this candle
+		for tradeIndex >= 0 && time.Unix(trades[tradeIndex].ExecutedAt, 0).After(candleTime) {
+			trade := trades[tradeIndex]
+
+			// Reverse the trade effect
+			size, _ := strconv.ParseFloat(trade.Size, 64)
+			price, _ := strconv.ParseFloat(trade.Price, 64)
+			fee, _ := strconv.ParseFloat(trade.Fee, 64)
+
+			if trade.Side == "BUY" {
+				// Reverse buy: remove BTC, add back USDC
+				currentBTC -= size
+				currentUSDC += (size * price) + fee
+			} else {
+				// Reverse sell: add back BTC, remove USDC
+				currentBTC += size
+				currentUSDC -= (size * price) - fee
+			}
+
+			tradeIndex--
+		}
+
+		// Calculate total USD value using candle price
+		price, _ := strconv.ParseFloat(candle.Close, 64)
+		totalUSD := currentUSDC + (currentBTC * price)
+
+		accountValues = append([]AccountValue{{
+			Timestamp: candleTime.Unix(),
+			BTC:       currentBTC,
+			USDC:      currentUSDC,
+			TotalUSD:  totalUSD,
+		}}, accountValues...)
+	}
+
+	return accountValues, nil
 }
 
 // CalculateIndicatorsForGraph calculates technical indicators for each candle
@@ -848,8 +1013,6 @@ func (c *CoinbaseClient) CalculateGraphSummary(candles []Candle, trades []Trade,
 	// Trade statistics
 	summary.TotalTrades = len(trades)
 	var totalVolume, totalFees float64
-	var prices []float64
-
 	for _, trade := range trades {
 		if trade.Side == "BUY" {
 			summary.BuyTrades++
@@ -857,19 +1020,21 @@ func (c *CoinbaseClient) CalculateGraphSummary(candles []Candle, trades []Trade,
 			summary.SellTrades++
 		}
 
-		size, _ := strconv.ParseFloat(trade.Size, 64)
-		price, _ := strconv.ParseFloat(trade.Price, 64)
+		volume, _ := strconv.ParseFloat(trade.FilledValue, 64)
 		fee, _ := strconv.ParseFloat(trade.Fee, 64)
-
-		totalVolume += size * price
+		totalVolume += volume
 		totalFees += fee
-		prices = append(prices, price)
 	}
-
 	summary.TotalVolume = totalVolume
 	summary.TotalFees = totalFees
 
-	// Price statistics
+	// Price statistics from candles
+	var prices []float64
+	for _, candle := range candles {
+		price, _ := strconv.ParseFloat(candle.Close, 64)
+		prices = append(prices, price)
+	}
+
 	if len(prices) > 0 {
 		summary.BestPrice = prices[0]
 		summary.WorstPrice = prices[0]
