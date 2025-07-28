@@ -421,13 +421,13 @@ func (h *Handlers) GetCandles(c *gin.Context) {
 
 // GetMarketState retrieves current market state with bid/ask and order book
 func (h *Handlers) GetMarketState(c *gin.Context) {
-	// Get depth parameter (default to 10 levels)
-	depthStr := c.DefaultQuery("depth", "10")
+	// Get depth parameter (default to level 2)
+	depthStr := c.DefaultQuery("depth", "2")
 	depth, err := strconv.Atoi(depthStr)
-	if err != nil || depth <= 0 || depth > 50 {
+	if err != nil || depth < 1 || depth > 3 {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "Invalid depth parameter",
-			"message": "Depth must be a positive integer between 1 and 50",
+			"message": "Depth must be 1, 2, or 3 (1=best bid/ask, 2=top 50, 3=full order book)",
 		})
 		return
 	}

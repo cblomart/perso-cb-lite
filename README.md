@@ -67,8 +67,8 @@ curl -H "X-API-Key: YOUR_ACCESS_KEY" http://localhost:8080/api/v1/accounts
 # Get current market state (bid/ask, spread, order book)
 curl -H "X-API-Key: YOUR_ACCESS_KEY" http://localhost:8080/api/v1/market
 
-# Get market state with custom depth (20 levels)
-curl -H "X-API-Key: YOUR_ACCESS_KEY" "http://localhost:8080/api/v1/market?depth=20"
+# Get market state with custom depth (level 3 = full order book)
+curl -H "X-API-Key: YOUR_ACCESS_KEY" "http://localhost:8080/api/v1/market?depth=3"
 
 # Custom time range with specific granularity
 curl -H "X-API-Key: YOUR_ACCESS_KEY" \

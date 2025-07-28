@@ -328,6 +328,16 @@ func (c *CoinbaseClient) GetOrderBook(level int) (*OrderBook, error) {
 
 	c.logger.Printf("Fetching order book for %s (level %d)...", c.tradingPair, level)
 
+	// Coinbase API uses level 1, 2, or 3 for order book depth
+	// Level 1: Best bid/ask only
+	// Level 2: Top 50 bids and asks
+	// Level 3: Full order book (up to 5000 bids and asks)
+	if level > 3 {
+		level = 3
+	} else if level < 1 {
+		level = 1
+	}
+
 	endpoint := fmt.Sprintf("/products/%s/book?level=%d", c.tradingPair, level)
 
 	respBody, err := c.makeRequest(ctx, "GET", endpoint, nil)
