@@ -515,29 +515,29 @@ func (c *CoinbaseClient) GetSignalWithCandles(candleCount int, granularity strin
 	// Calculate technical indicators
 	indicators := calculateTechnicalIndicators(candles)
 
-	// Check for bearish signals
-	bearishSignal, triggers := checkBearishSignals(indicators)
+	// Check for trend changes (not just bearish signals)
+	trendChange, currentTrend, triggers := c.detectTrendChange(indicators)
 
 	response := &SignalResponse{
-		BearishSignal: bearishSignal,
+		BearishSignal: currentTrend == "bearish",
 		Indicators:    indicators,
 		Triggers:      triggers,
 		Timestamp:     time.Now().Unix(),
 	}
 
-	// Send webhook if bearish signal is detected
-	if bearishSignal && c.webhookURL != "" {
+	// Send webhook only if there's a significant trend change
+	if trendChange && c.webhookURL != "" {
 		if err := c.SendWebhook(response); err != nil {
 			c.logger.Printf("Failed to send webhook: %v", err)
 			// Don't fail the signal request if webhook fails
 		} else {
-			c.logger.Printf("Webhook notification sent for bearish signal: %v", triggers)
+			c.logger.Printf("Webhook notification sent for trend change: %s → %s", currentTrend, triggers)
 		}
 	}
 
 	// Only log in debug mode for performance
 	if os.Getenv("LOG_LEVEL") == "DEBUG" {
-		c.logger.Printf("Signal calculation complete: bearish=%v, triggers=%v", bearishSignal, triggers)
+		c.logger.Printf("Signal calculation complete: bearish=%v, triggers=%v", response.BearishSignal, triggers)
 	}
 
 	return response, nil

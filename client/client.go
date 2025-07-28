@@ -29,6 +29,10 @@ type CoinbaseClient struct {
 	// Performance tracking
 	requestCount int64
 	startTime    time.Time
+	// Trend state tracking
+	lastTrendState      string // "bullish", "bearish", or "neutral"
+	lastSignalTime      time.Time
+	trendChangeCooldown time.Duration // Minimum time between trend change signals
 }
 
 // NewCoinbaseClient creates a new Coinbase client using ECDSA private key
@@ -91,16 +95,19 @@ func NewCoinbaseClient(tradingPair string, webhookURL string, webhookMaxRetries 
 	}
 
 	return &CoinbaseClient{
-		logger:            logger,
-		apiKey:            apiKey,
-		privateKey:        privateKey,
-		tradingPair:       tradingPair,
-		webhookURL:        webhookURL,
-		webhookMaxRetries: webhookMaxRetries,
-		webhookTimeout:    webhookTimeout,
-		httpClient:        httpClient,
-		requestCount:      0,
-		startTime:         time.Now(),
+		logger:              logger,
+		apiKey:              apiKey,
+		privateKey:          privateKey,
+		tradingPair:         tradingPair,
+		webhookURL:          webhookURL,
+		webhookMaxRetries:   webhookMaxRetries,
+		webhookTimeout:      webhookTimeout,
+		httpClient:          httpClient,
+		requestCount:        0,
+		startTime:           time.Now(),
+		lastTrendState:      "neutral",        // Start with neutral state
+		lastSignalTime:      time.Time{},      // Zero time means no signal sent yet
+		trendChangeCooldown: 30 * time.Minute, // Minimum 30 minutes between trend change signals
 	}, nil
 }
 
@@ -279,4 +286,141 @@ func (c *CoinbaseClient) sendWebhookAttempt(signal *SignalResponse) error {
 	}
 
 	return nil
+}
+
+// detectTrendChange determines if there's been a significant trend change that warrants a webhook
+func (c *CoinbaseClient) detectTrendChange(indicators TechnicalIndicators) (bool, string, []string) {
+	// Determine current trend state based on indicators
+	currentTrend := c.determineTrendState(indicators)
+
+	// Check if this is a significant change from the last known state
+	if c.lastTrendState == "neutral" {
+		// First signal - only send if we have a clear trend
+		if currentTrend != "neutral" {
+			c.lastTrendState = currentTrend
+			c.lastSignalTime = time.Now()
+			triggers := c.calculateTriggers(indicators, currentTrend)
+			return true, currentTrend, triggers
+		}
+		return false, currentTrend, nil
+	}
+
+	// Check if trend has changed
+	if currentTrend != c.lastTrendState && currentTrend != "neutral" {
+		// Check cooldown period to avoid spam
+		if time.Since(c.lastSignalTime) < c.trendChangeCooldown {
+			if os.Getenv("LOG_LEVEL") == "DEBUG" {
+				c.logger.Printf("🕐 Trend change detected but cooldown active (last signal: %v ago)",
+					time.Since(c.lastSignalTime))
+			}
+			return false, currentTrend, nil
+		}
+
+		// Valid trend change detected
+		oldTrend := c.lastTrendState
+		c.lastTrendState = currentTrend
+		c.lastSignalTime = time.Now()
+
+		if os.Getenv("LOG_LEVEL") == "DEBUG" {
+			c.logger.Printf("🔄 Trend change detected: %s → %s", oldTrend, currentTrend)
+		}
+
+		triggers := c.calculateTriggers(indicators, currentTrend)
+		return true, currentTrend, triggers
+	}
+
+	return false, currentTrend, nil
+}
+
+// calculateTriggers calculates the relevant triggers for the current trend
+func (c *CoinbaseClient) calculateTriggers(indicators TechnicalIndicators, trend string) []string {
+	var triggers []string
+
+	if trend == "bearish" {
+		// Bearish triggers
+		if indicators.MACD < indicators.SignalLine && indicators.MACD < 0 {
+			triggers = append(triggers, "MACD_BEARISH_CROSSOVER")
+		}
+		if indicators.EMA12 < indicators.EMA26 {
+			triggers = append(triggers, "EMA_BEARISH_CROSSOVER")
+		}
+		if indicators.RSI < 40 {
+			triggers = append(triggers, "RSI_MOMENTUM_BREAKDOWN")
+		}
+		if indicators.PriceDropPct4h < -5 {
+			triggers = append(triggers, "PRICE_TREND_REVERSAL")
+		}
+		if indicators.CurrentPrice < indicators.EMA200 && indicators.RSI < 45 {
+			triggers = append(triggers, "MAJOR_TREND_BREAKDOWN")
+		}
+	} else if trend == "bullish" {
+		// Bullish triggers
+		if indicators.MACD > indicators.SignalLine && indicators.MACD > 0 {
+			triggers = append(triggers, "MACD_BULLISH_CROSSOVER")
+		}
+		if indicators.EMA12 > indicators.EMA26 {
+			triggers = append(triggers, "EMA_BULLISH_CROSSOVER")
+		}
+		if indicators.RSI > 60 {
+			triggers = append(triggers, "RSI_MOMENTUM_BUILDUP")
+		}
+		if indicators.PriceDropPct4h > 5 {
+			triggers = append(triggers, "PRICE_TREND_REVERSAL")
+		}
+		if indicators.CurrentPrice > indicators.EMA200 && indicators.RSI > 55 {
+			triggers = append(triggers, "MAJOR_TREND_BREAKOUT")
+		}
+	}
+
+	return triggers
+}
+
+// determineTrendState determines the current trend state based on technical indicators
+func (c *CoinbaseClient) determineTrendState(indicators TechnicalIndicators) string {
+	// Count bearish and bullish signals
+	bearishCount := 0
+	bullishCount := 0
+
+	// Bearish signals
+	if indicators.MACD < indicators.SignalLine && indicators.MACD < 0 {
+		bearishCount++
+	}
+	if indicators.EMA12 < indicators.EMA26 {
+		bearishCount++
+	}
+	if indicators.RSI < 40 {
+		bearishCount++
+	}
+	if indicators.PriceDropPct4h < -5 {
+		bearishCount++
+	}
+	if indicators.CurrentPrice < indicators.EMA200 && indicators.RSI < 45 {
+		bearishCount++
+	}
+
+	// Bullish signals (opposite conditions)
+	if indicators.MACD > indicators.SignalLine && indicators.MACD > 0 {
+		bullishCount++
+	}
+	if indicators.EMA12 > indicators.EMA26 {
+		bullishCount++
+	}
+	if indicators.RSI > 60 {
+		bullishCount++
+	}
+	if indicators.PriceDropPct4h > 5 {
+		bullishCount++
+	}
+	if indicators.CurrentPrice > indicators.EMA200 && indicators.RSI > 55 {
+		bullishCount++
+	}
+
+	// Determine trend based on signal strength
+	if bearishCount >= 3 {
+		return "bearish"
+	} else if bullishCount >= 3 {
+		return "bullish"
+	} else {
+		return "neutral"
+	}
 }

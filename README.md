@@ -36,18 +36,15 @@ The `/api/v1/signal` endpoint provides comprehensive technical analysis:
 - **Price percentage change** over last 4 hours
 - **Volume spike detection** (last candle > 2× average)
 
-**Bearish Trend Change Triggers:**
-- **MACD_BEARISH_CROSSOVER**: MACD < signal line AND MACD < 0 (strong bearish crossover)
-- **EMA_BEARISH_CROSSOVER**: EMA12 < EMA26 (trend reversal signal)
-- **RSI_MOMENTUM_BREAKDOWN**: RSI < 40 (momentum breakdown)
-- **PRICE_TREND_REVERSAL**: Price drop > 5% in last 4 hours (significant reversal)
-- **MAJOR_TREND_BREAKDOWN**: Price < EMA200 AND RSI < 45 (major trend change)
-- **STRONG_BEARISH_TREND**: ADX > 25 + bearish MACD + volume spike (strong trend)
-- **MULTIPLE_BEARISH_SIGNALS**: 3+ bearish signals align (trend change confirmation)
+**Trend Change Detection:**
+- **Bullish to Bearish**: When 3+ bearish signals align (trend reversal)
+- **Bearish to Bullish**: When 3+ bullish signals align (trend reversal)
+- **Neutral to Trend**: First clear trend establishment
+- **Cooldown Period**: 30-minute minimum between trend change signals
 
 **Response Codes:**
-- **200 OK**: Bearish signal detected (includes full indicator data)
-- **204 No Content**: No bearish signals detected
+- **200 OK**: Trend change detected (includes full indicator data)
+- **204 No Content**: No trend changes detected
 
 **Webhook Integration:**
 When `WEBHOOK_URL` is configured, the API automatically:

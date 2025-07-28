@@ -314,9 +314,9 @@ func checkSignal(client *client.CoinbaseClient) {
 		return
 	}
 
-	if signal.BearishSignal {
-		log.Printf("🚨 BEARISH SIGNAL DETECTED: %v", signal.Triggers)
+	if len(signal.Triggers) > 0 {
+		log.Printf("🔄 TREND CHANGE DETECTED: %v", signal.Triggers)
 	} else {
-		log.Printf("✅ No bearish signals detected")
+		log.Printf("✅ No trend changes detected")
 	}
 }
