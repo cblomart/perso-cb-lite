@@ -36,6 +36,42 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 		return time.Time{}, fmt.Errorf("unable to parse timestamp: %s", timeStr)
 	}
 
+	// Calculate overall time range from all data sources
+	var allTimestamps []float64
+
+	// Add candle timestamps
+	for _, candle := range graphData.Candles {
+		timestamp, err := parseTimestamp(candle.Start)
+		if err == nil {
+			allTimestamps = append(allTimestamps, float64(timestamp.Unix()))
+		}
+	}
+
+	// Add trade timestamps
+	for _, trade := range graphData.Trades {
+		allTimestamps = append(allTimestamps, float64(trade.ExecutedAt))
+	}
+
+	// Add account value timestamps
+	for _, av := range graphData.AccountValues {
+		allTimestamps = append(allTimestamps, float64(av.Timestamp))
+	}
+
+	// Calculate overall time range
+	var minTime, maxTime float64
+	if len(allTimestamps) > 0 {
+		minTime = allTimestamps[0]
+		maxTime = allTimestamps[0]
+		for _, ts := range allTimestamps {
+			if ts < minTime {
+				minTime = ts
+			}
+			if ts > maxTime {
+				maxTime = ts
+			}
+		}
+	}
+
 	// Create a large image to hold both charts
 	img := vgimg.New(12*vg.Inch, 10*vg.Inch)
 	dc := draw.New(img)
@@ -45,6 +81,12 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 	topChart.Title.Text = fmt.Sprintf("BTC-USDC Price Chart (%s)", graphData.Period)
 	topChart.X.Label.Text = "Time"
 	topChart.Y.Label.Text = "BTC Price (USD)"
+
+	// Set X-axis range for top chart
+	if maxTime > minTime {
+		topChart.X.Min = minTime
+		topChart.X.Max = maxTime
+	}
 
 	// Create candlestick data
 	candles := make(plotter.XYs, 0, len(graphData.Candles))
@@ -255,6 +297,12 @@ func (c *CoinbaseClient) GenerateChartPNG(graphData *GraphData) ([]byte, error) 
 	bottomChart.Title.Text = "Total Asset Value Evolution"
 	bottomChart.X.Label.Text = "Time"
 	bottomChart.Y.Label.Text = "Asset Value (USD)"
+
+	// Set X-axis range for bottom chart (same as top chart)
+	if maxTime > minTime {
+		bottomChart.X.Min = minTime
+		bottomChart.X.Max = maxTime
+	}
 
 	// Create line chart data for asset values
 	if len(graphData.AccountValues) > 0 {
