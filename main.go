@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -264,6 +266,10 @@ func startSignalPolling(client *client.CoinbaseClient, webhookURL string) {
 
 	log.Printf("🚀 Background signal polling started - checking every 10 minutes")
 
+	// Send startup webhook to establish baseline position
+	log.Printf("🔍 Sending startup webhook with current market position...")
+	sendStartupWebhook(client, webhookURL)
+
 	// Run initial check immediately
 	log.Printf("🔍 Running initial signal check...")
 	checkSignal(client)
@@ -271,6 +277,88 @@ func startSignalPolling(client *client.CoinbaseClient, webhookURL string) {
 	// Continue polling every 10 minutes
 	for range ticker.C {
 		checkSignal(client)
+	}
+}
+
+// sendStartupWebhook sends a webhook at startup to establish current market position
+func sendStartupWebhook(client *client.CoinbaseClient, webhookURL string) {
+	// Track current asset value
+	if err := client.TrackAssetValue(); err != nil {
+		log.Printf("⚠️ Failed to track asset value for startup webhook: %v", err)
+	}
+
+	// Get current signal to establish baseline
+	signal, err := client.GetSignalLightweight()
+	if err != nil {
+		log.Printf("❌ Failed to get signal for startup webhook: %v", err)
+		return
+	}
+
+	// Create startup webhook request
+	req, err := http.NewRequest("GET", webhookURL, nil)
+	if err != nil {
+		log.Printf("❌ Failed to create startup webhook request: %v", err)
+		return
+	}
+
+	// Add query parameters for startup webhook
+	q := req.URL.Query()
+	q.Add("startup", "true")
+	q.Add("baseline", "true")
+	q.Add("current_trend", getCurrentTrendState(signal))
+	q.Add("timestamp", fmt.Sprintf("%d", signal.Timestamp))
+
+	// Add signal information if any triggers are present
+	if len(signal.Triggers) > 0 {
+		q.Add("triggers", strings.Join(signal.Triggers, ","))
+		q.Add("bearish", "true")
+	} else {
+		q.Add("bearish", "false")
+	}
+
+	req.URL.RawQuery = q.Encode()
+
+	// Set timeout for startup webhook
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Create HTTP client for startup webhook
+	httpClient := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	// Send startup webhook
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		log.Printf("❌ Startup webhook failed: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		log.Printf("✅ Startup webhook sent successfully to %s", webhookURL)
+	} else {
+		log.Printf("⚠️ Startup webhook returned status %d", resp.StatusCode)
+	}
+}
+
+// getCurrentTrendState determines the current trend state from signal indicators
+func getCurrentTrendState(signal *client.SignalResponse) string {
+	if len(signal.Triggers) > 0 {
+		return "bearish"
+	}
+
+	// Analyze indicators to determine trend
+	indicators := signal.Indicators
+
+	// Simple trend determination based on MACD and RSI
+	if indicators.MACD < 0 && indicators.RSI < 50 {
+		return "bearish"
+	} else if indicators.MACD > 0 && indicators.RSI > 50 {
+		return "bullish"
+	} else {
+		return "neutral"
 	}
 }
 
