@@ -72,7 +72,7 @@ func main() {
 	}
 
 	// Initialize Coinbase client
-	coinbaseClient, err := client.NewCoinbaseClient(tradingConfig.GetTradingPair())
+	coinbaseClient, err := client.NewCoinbaseClient(tradingConfig.GetTradingPair(), tradingConfig.WebhookURL)
 	if err != nil {
 		log.Fatalf("Failed to initialize Coinbase client: %v", err)
 	}
@@ -138,6 +138,9 @@ func main() {
 
 		// Performance monitoring
 		api.GET("/performance", handlers.GetPerformance)
+
+		// Trading signals
+		api.GET("/signal", handlers.GetSignal)
 	}
 
 	// Simple ping for basic server status
@@ -230,6 +233,7 @@ func main() {
 	log.Printf("📖 API Documentation:")
 	log.Printf("   - Health check: GET http://localhost:%s/health", port)
 	log.Printf("   - Performance: GET http://localhost:%s/api/v1/performance", port)
+	log.Printf("   - Signal: GET http://localhost:%s/api/v1/signal", port)
 	log.Printf("   - Accounts: GET http://localhost:%s/api/v1/accounts", port)
 	log.Printf("   - Orders: GET http://localhost:%s/api/v1/orders", port)
 	log.Printf("   - Buy: POST http://localhost:%s/api/v1/buy", port)

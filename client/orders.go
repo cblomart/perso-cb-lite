@@ -494,6 +494,53 @@ func (c *CoinbaseClient) GetOrderBook(limit int) (*OrderBook, error) {
 	return orderBook, nil
 }
 
+// GetSignal calculates technical indicators and checks for bearish signals
+func (c *CoinbaseClient) GetSignal() (*SignalResponse, error) {
+
+	// Only log in debug mode for performance
+	if os.Getenv("LOG_LEVEL") == "DEBUG" {
+		c.logger.Printf("Fetching signal data for %s...", c.tradingPair)
+	}
+
+	// Get 5-minute candles for comprehensive technical analysis
+	// Using 300 candles (25 hours = ~1 day) for better indicator accuracy
+	// This provides enough data for EMA200, MACD, and other indicators
+	candles, err := c.GetCandles("", "", "FIVE_MINUTE", 300)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch candles: %w", err)
+	}
+
+	// Calculate technical indicators
+	indicators := calculateTechnicalIndicators(candles)
+
+	// Check for bearish signals
+	bearishSignal, triggers := checkBearishSignals(indicators)
+
+	response := &SignalResponse{
+		BearishSignal: bearishSignal,
+		Indicators:    indicators,
+		Triggers:      triggers,
+		Timestamp:     time.Now().Unix(),
+	}
+
+	// Send webhook if bearish signal is detected
+	if bearishSignal && c.webhookURL != "" {
+		if err := c.SendWebhook(response); err != nil {
+			c.logger.Printf("Failed to send webhook: %v", err)
+			// Don't fail the signal request if webhook fails
+		} else {
+			c.logger.Printf("Webhook notification sent for bearish signal: %v", triggers)
+		}
+	}
+
+	// Only log in debug mode for performance
+	if os.Getenv("LOG_LEVEL") == "DEBUG" {
+		c.logger.Printf("Signal calculation complete: bearish=%v, triggers=%v", bearishSignal, triggers)
+	}
+
+	return response, nil
+}
+
 // GetMarketState retrieves comprehensive market state information
 func (c *CoinbaseClient) GetMarketState(limit int) (*MarketState, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

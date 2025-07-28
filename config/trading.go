@@ -11,6 +11,7 @@ type TradingConfig struct {
 	BaseCurrency  string
 	QuoteCurrency string
 	TradingPair   string
+	WebhookURL    string
 }
 
 // LoadTradingConfig loads trading configuration from environment variables
@@ -37,6 +38,9 @@ func LoadTradingConfig() *TradingConfig {
 		config.TradingPair = fmt.Sprintf("%s-%s", config.BaseCurrency, config.QuoteCurrency)
 	}
 	config.TradingPair = strings.ToUpper(config.TradingPair)
+
+	// Load webhook URL for n8n notifications
+	config.WebhookURL = os.Getenv("WEBHOOK_URL")
 
 	return config
 }

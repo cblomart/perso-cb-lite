@@ -18,6 +18,7 @@ type CoinbaseClient struct {
 	apiKey      string
 	privateKey  *ecdsa.PrivateKey
 	tradingPair string
+	webhookURL  string
 	httpClient  *http.Client
 	// Performance tracking
 	requestCount int64
@@ -25,7 +26,7 @@ type CoinbaseClient struct {
 }
 
 // NewCoinbaseClient creates a new Coinbase client using ECDSA private key
-func NewCoinbaseClient(tradingPair string) (*CoinbaseClient, error) {
+func NewCoinbaseClient(tradingPair string, webhookURL string) (*CoinbaseClient, error) {
 	apiKey := os.Getenv("COINBASE_API_KEY")
 	apiSecret := os.Getenv("COINBASE_API_SECRET")
 
@@ -88,6 +89,7 @@ func NewCoinbaseClient(tradingPair string) (*CoinbaseClient, error) {
 		apiKey:       apiKey,
 		privateKey:   privateKey,
 		tradingPair:  tradingPair,
+		webhookURL:   webhookURL,
 		httpClient:   httpClient,
 		requestCount: 0,
 		startTime:    time.Now(),
@@ -116,4 +118,42 @@ func (c *CoinbaseClient) GetPerformanceStats() map[string]interface{} {
 		"requests_per_second": float64(c.requestCount) / uptime.Seconds(),
 		"trading_pair":        c.tradingPair,
 	}
+}
+
+// SendWebhook sends a webhook notification to n8n
+func (c *CoinbaseClient) SendWebhook(signal *SignalResponse) error {
+	if c.webhookURL == "" {
+		return fmt.Errorf("webhook URL not configured")
+	}
+
+	// Note: We're using GET request with query parameters for n8n webhook
+	// The signal data is passed via query parameters for easy n8n integration
+
+	// Create HTTP request
+	req, err := http.NewRequest("GET", c.webhookURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create webhook request: %w", err)
+	}
+
+	// Add query parameters for GET request
+	q := req.URL.Query()
+	q.Add("signal", "true")
+	q.Add("bearish", "true")
+	q.Add("triggers", strings.Join(signal.Triggers, ","))
+	q.Add("timestamp", fmt.Sprintf("%d", signal.Timestamp))
+	req.URL.RawQuery = q.Encode()
+
+	// Send request
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send webhook: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("webhook failed with status %d", resp.StatusCode)
+	}
+
+	c.logger.Printf("Webhook sent successfully to %s", c.webhookURL)
+	return nil
 }

@@ -24,6 +24,54 @@ The API automatically accounts for Coinbase's actual fee structure:
   - $2.99 for trades $50–$200
   - 1.49% for trades over $200
 
+### Trading Signals
+
+The `/api/v1/signal` endpoint provides comprehensive technical analysis:
+
+**Technical Indicators Calculated:**
+- **MACD** (Moving Average Convergence Divergence) and signal line
+- **EMA 12, 26, 200** (Exponential Moving Averages)
+- **RSI** (Relative Strength Index)
+- **ADX** (Average Directional Index)
+- **Price percentage change** over last 4 hours
+- **Volume spike detection** (last candle > 2× average)
+
+**Bearish Trend Change Triggers:**
+- **MACD_BEARISH_CROSSOVER**: MACD < signal line AND MACD < 0 (strong bearish crossover)
+- **EMA_BEARISH_CROSSOVER**: EMA12 < EMA26 (trend reversal signal)
+- **RSI_MOMENTUM_BREAKDOWN**: RSI < 40 (momentum breakdown)
+- **PRICE_TREND_REVERSAL**: Price drop > 5% in last 4 hours (significant reversal)
+- **MAJOR_TREND_BREAKDOWN**: Price < EMA200 AND RSI < 45 (major trend change)
+- **STRONG_BEARISH_TREND**: ADX > 25 + bearish MACD + volume spike (strong trend)
+- **MULTIPLE_BEARISH_SIGNALS**: 3+ bearish signals align (trend change confirmation)
+
+**Response Codes:**
+- **200 OK**: Bearish signal detected (includes full indicator data)
+- **204 No Content**: No bearish signals detected
+
+**Webhook Integration:**
+When `WEBHOOK_URL` is configured, the API automatically sends GET requests to n8n when bearish signals are detected:
+
+```bash
+# Example webhook URL format
+WEBHOOK_URL=http://n8n:5678/webhook/signal
+
+# Query parameters sent to n8n:
+# ?signal=true&bearish=true&triggers=MACD_BEARISH_CROSSOVER,EMA_BEARISH_CROSSOVER&timestamp=1234567890
+```
+
+**n8n Integration:**
+1. Create a webhook trigger in n8n
+2. Set the webhook URL (e.g., `http://n8n:5678/webhook/signal`)
+3. Configure the API with `WEBHOOK_URL=http://n8n:5678/webhook/signal`
+4. The API will automatically notify n8n when bearish signals are detected
+
+**Data Requirements:**
+- **Timeframe**: 25 hours of 5-minute candles (~1 day)
+- **Data Points**: 300 candles for comprehensive technical analysis
+- **Update Frequency**: Designed for 10-minute intervals
+- **Granularity**: 5-minute intervals (FIVE_MINUTE)
+
 ## Quick Start
 
 ### 1. Get Coinbase API Keys
@@ -81,6 +129,9 @@ curl -H "X-API-Key: YOUR_ACCESS_KEY" http://localhost:8080/api/v1/market
 
 # Get market state with custom limit (50 bid/ask entries)
 curl -H "X-API-Key: YOUR_ACCESS_KEY" "http://localhost:8080/api/v1/market?limit=50"
+
+# Get trading signals (technical analysis)
+curl -H "X-API-Key: YOUR_ACCESS_KEY" http://localhost:8080/api/v1/signal
 
 # Custom time range with specific granularity
 curl -H "X-API-Key: YOUR_ACCESS_KEY" \
@@ -160,6 +211,7 @@ TRADING_QUOTE_CURRENCY=USD
 | `PORT` | No | 8080 | Server port |
 | `ENVIRONMENT` | No | development | Environment (development/production) |
 | `LOG_LEVEL` | No | auto | Log level (DEBUG/INFO/WARN/ERROR, auto: WARN in prod, INFO in dev) |
+| `WEBHOOK_URL` | No | - | n8n webhook URL for signal notifications (optional) |
 
 ## Docker Deployment
 

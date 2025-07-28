@@ -443,3 +443,24 @@ func (h *Handlers) GetPerformance(c *gin.Context) {
 		"timestamp":   time.Now().Format(time.RFC3339),
 	})
 }
+
+// GetSignal calculates technical indicators and checks for bearish signals
+func (h *Handlers) GetSignal(c *gin.Context) {
+	signal, err := h.client.GetSignal()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to calculate signal",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// Return 200 OK if bearish signal detected, 204 No Content otherwise
+	if signal.BearishSignal {
+		c.JSON(http.StatusOK, gin.H{
+			"signal": signal,
+		})
+	} else {
+		c.Status(http.StatusNoContent)
+	}
+}
