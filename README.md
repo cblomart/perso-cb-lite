@@ -4,7 +4,7 @@ A simple Go API for trading cryptocurrencies on Coinbase.
 
 ## What it does
 
-- Buy and sell crypto with automatic stop-loss protection
+- Buy and sell crypto with market orders
 - Buy/sell percentage of available balance with `percentage` setting (includes 1% fee buffer)
 - Check your account balance
 - View and cancel orders (individual or all)
@@ -94,27 +94,7 @@ curl -X POST http://localhost:8080/api/v1/buy \
   -H "X-API-Key: YOUR_ACCESS_KEY" \
   -d '{"percentage": 50.0, "price": 45000.00}'
 
-# Buy with stop-loss (stop-limit order)
-curl -X POST http://localhost:8080/api/v1/buy \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: YOUR_ACCESS_KEY" \
-  -d '{
-    "size": "0.001", 
-    "stop_price": 118000.00,  # Trigger when price goes up to $118k
-    "limit_price": 118100.00  # Buy at $118.1k (limit_price > stop_price for BUY)
-  }'
-
-# Buy 75% of available USDC with stop-loss (stop-limit order)
-curl -X POST http://localhost:8080/api/v1/buy \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: YOUR_ACCESS_KEY" \
-  -d '{
-    "percentage": 75.0,
-    "stop_price": 118000.00,  # Trigger when price goes up to $118k
-    "limit_price": 118100.00  # Buy at $118.1k (limit_price > stop_price for BUY)
-  }'
-
-# Sell 0.001 BTC at $50,000 (regular limit order)
+# Sell 0.001 BTC at $50,000 (market order)
 curl -X POST http://localhost:8080/api/v1/sell \
   -H "Content-Type: application/json" \
   -H "X-API-Key: YOUR_ACCESS_KEY" \
@@ -125,26 +105,6 @@ curl -X POST http://localhost:8080/api/v1/sell \
   -H "Content-Type: application/json" \
   -H "X-API-Key: YOUR_ACCESS_KEY" \
   -d '{"percentage": 25.0, "price": 50000.00}'
-
-# Sell with stop-loss (stop-limit order)
-curl -X POST http://localhost:8080/api/v1/sell \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: YOUR_ACCESS_KEY" \
-  -d '{
-    "size": "0.001", 
-    "stop_price": 45000.00,  # Trigger when price goes down to $45k
-    "limit_price": 44900.00  # Sell at $44.9k (stop_price > limit_price for SELL)
-  }'
-
-# Sell 50% of available BTC with stop-loss (stop-limit order)
-curl -X POST http://localhost:8080/api/v1/sell \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: YOUR_ACCESS_KEY" \
-  -d '{
-    "percentage": 50.0,
-    "stop_price": 45000.00,  # Trigger when price goes down to $45k
-    "limit_price": 44900.00  # Sell at $44.9k (stop_price > limit_price for SELL)
-  }'
 
 # Cancel all open orders
 curl -X DELETE http://localhost:8080/api/v1/orders \

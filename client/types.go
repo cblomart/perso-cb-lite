@@ -27,12 +27,10 @@ type Order struct {
 	AveragePrice string    `json:"average_price"`
 }
 
-// TradingRequest represents a unified trading request with optional stop limit
+// TradingRequest represents a trading request for market orders
 type TradingRequest struct {
 	Size       string  `json:"size"`
 	Price      float64 `json:"price"`
-	StopPrice  float64 `json:"stop_price,omitempty"`
-	LimitPrice float64 `json:"limit_price,omitempty"`
 	Percentage float64 `json:"percentage,omitempty"`
 }
 

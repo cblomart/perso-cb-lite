@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"coinbase-base/client"
@@ -131,6 +135,9 @@ func main() {
 		api.GET("/orders", handlers.GetOrders)
 		api.DELETE("/orders/:order_id", handlers.CancelOrder)
 		api.DELETE("/orders", handlers.CancelAllOrders)
+
+		// Performance monitoring
+		api.GET("/performance", handlers.GetPerformance)
 	}
 
 	// Simple ping for basic server status
@@ -222,13 +229,46 @@ func main() {
 	log.Printf("🚀 Starting server on port %s", port)
 	log.Printf("📖 API Documentation:")
 	log.Printf("   - Health check: GET http://localhost:%s/health", port)
+	log.Printf("   - Performance: GET http://localhost:%s/api/v1/performance", port)
 	log.Printf("   - Accounts: GET http://localhost:%s/api/v1/accounts", port)
 	log.Printf("   - Orders: GET http://localhost:%s/api/v1/orders", port)
 	log.Printf("   - Buy: POST http://localhost:%s/api/v1/buy", port)
 	log.Printf("   - Sell: POST http://localhost:%s/api/v1/sell", port)
 	log.Printf("   - Cancel all: DELETE http://localhost:%s/api/v1/orders", port)
 
-	if err := router.Run(":" + port); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+	// Create HTTP server for graceful shutdown
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: router,
 	}
+
+	// Start the server in a goroutine
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Failed to start server: %v", err)
+		}
+	}()
+
+	// Wait for an interrupt signal (e.g., Ctrl+C)
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("Shutting down server...")
+
+	// Create a deadline for server shutdown
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+
+	// Attempt graceful shutdown
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Server forced to shutdown: %v", err)
+	}
+
+	// Close HTTP client connections
+	if err := coinbaseClient.Close(); err != nil {
+		log.Printf("Error closing HTTP client: %v", err)
+	}
+
+	log.Println("Server stopped.")
 }

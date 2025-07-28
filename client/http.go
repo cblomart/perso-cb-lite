@@ -9,12 +9,16 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
 )
 
 const baseURL = "https://api.coinbase.com/api/v3/brokerage"
 
 // makeRequest makes an authenticated HTTP request to the Coinbase API
 func (c *CoinbaseClient) makeRequest(ctx context.Context, method, endpoint string, body interface{}) ([]byte, error) {
+	// Track request count
+	atomic.AddInt64(&c.requestCount, 1)
+
 	// Extract the path for JWT URI construction (exclude query parameters)
 	path := endpoint
 	if idx := strings.Index(endpoint, "?"); idx != -1 {
@@ -77,8 +81,8 @@ func (c *CoinbaseClient) makeRequest(ctx context.Context, method, endpoint strin
 		c.logger.Printf("==================")
 	}
 
-	// Make request
-	resp, err := http.DefaultClient.Do(req)
+	// Make request using our optimized HTTP client
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make request: %w", err)
 	}

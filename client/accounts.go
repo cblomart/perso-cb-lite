@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 )
@@ -29,7 +30,7 @@ type AccountsResponse struct {
 
 // GetAccounts retrieves accounts for the configured trading pair
 func (c *CoinbaseClient) GetAccounts() ([]Account, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Extract base and quote currencies from trading pair
@@ -40,7 +41,10 @@ func (c *CoinbaseClient) GetAccounts() ([]Account, error) {
 	baseCurrency := parts[0]
 	quoteCurrency := parts[1]
 
-	c.logger.Printf("Fetching accounts for %s and %s...", baseCurrency, quoteCurrency)
+	// Only log in debug mode for performance
+	if os.Getenv("LOG_LEVEL") == "DEBUG" {
+		c.logger.Printf("Fetching accounts for %s and %s...", baseCurrency, quoteCurrency)
+	}
 
 	respBody, err := c.makeRequest(ctx, "GET", "/accounts", nil)
 	if err != nil {
@@ -67,12 +71,9 @@ func (c *CoinbaseClient) GetAccounts() ([]Account, error) {
 		}
 	}
 
-	c.logger.Printf("Successfully fetched %d trading accounts (%s/%s)", len(accounts), baseCurrency, quoteCurrency)
+	// Only log in debug mode for performance
+	if os.Getenv("LOG_LEVEL") == "DEBUG" {
+		c.logger.Printf("Successfully fetched %d trading accounts (%s/%s)", len(accounts), baseCurrency, quoteCurrency)
+	}
 	return accounts, nil
-}
-
-// GetPositions retrieves current positions (for now, return empty as regular API might not have positions)
-func (c *CoinbaseClient) GetPositions() ([]Account, error) {
-	c.logger.Printf("Positions endpoint not available in regular Coinbase API, returning empty list")
-	return []Account{}, nil
 }
