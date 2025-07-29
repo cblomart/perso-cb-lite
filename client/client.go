@@ -407,12 +407,20 @@ func (c *CoinbaseClient) detectTrendChange(indicators TechnicalIndicators) (bool
 					time.Since(c.lastSignalTime))
 			}
 		} else {
-			// Valid dip detected
-			c.lastSignalTime = time.Now()
-			if os.Getenv("LOG_LEVEL") == "DEBUG" {
-				c.logger.Printf("📉 Immediate dip detected: %v", dipTriggers)
+			// Only trigger dip if it represents a trend change (neutral → bearish or bullish → bearish)
+			if c.lastTrendState != "bearish" {
+				// Valid dip detected that changes the trend
+				c.lastSignalTime = time.Now()
+				if os.Getenv("LOG_LEVEL") == "DEBUG" {
+					c.logger.Printf("📉 Immediate dip detected (trend change): %v", dipTriggers)
+				}
+				return true, "bearish", dipTriggers
+			} else {
+				// Dip detected but trend is already bearish - no change
+				if os.Getenv("LOG_LEVEL") == "DEBUG" {
+					c.logger.Printf("📉 Dip detected but trend already bearish - no change")
+				}
 			}
-			return true, "bearish", dipTriggers
 		}
 	}
 
@@ -428,8 +436,8 @@ func (c *CoinbaseClient) detectTrendChange(indicators TechnicalIndicators) (bool
 		return false, currentTrend, nil
 	}
 
-	// Check if trend has changed
-	if currentTrend != c.lastTrendState && currentTrend != "neutral" {
+	// Check if trend has changed (only send webhook for actual trend changes)
+	if currentTrend != c.lastTrendState {
 		// Check cooldown period to avoid spam (increased to 8 minutes)
 		if time.Since(c.lastSignalTime) < 8*time.Minute {
 			if os.Getenv("LOG_LEVEL") == "DEBUG" {
