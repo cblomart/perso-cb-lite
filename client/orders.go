@@ -40,6 +40,10 @@ type CoinbaseCreateOrderRequest struct {
 			BaseSize   string `json:"base_size"`
 			LimitPrice string `json:"limit_price"`
 		} `json:"limit_limit_gtc,omitempty"`
+		LimitLimitIoc *struct {
+			BaseSize   string `json:"base_size"`
+			LimitPrice string `json:"limit_price"`
+		} `json:"limit_limit_ioc,omitempty"`
 	} `json:"order_configuration"`
 }
 
@@ -228,7 +232,7 @@ func (c *CoinbaseClient) createOrder(side, size string, price float64) (*Order, 
 
 	// Log order placement in debug mode
 	if os.Getenv("LOG_LEVEL") == "DEBUG" {
-		c.logger.Printf("Placing %s market order: size=%s, price=%.8f", side, size, price)
+		c.logger.Printf("Placing %s IOC order: size=%s, price=%.8f", side, size, price)
 	}
 
 	// Check balance if possible
@@ -245,8 +249,9 @@ func (c *CoinbaseClient) createOrder(side, size string, price float64) (*Order, 
 		ClientOrderID: clientOrderID,
 	}
 
-	// Configure market order
-	orderReq.OrderConfiguration.LimitLimitGtc = &struct {
+	// Configure market order with IOC (Immediate or Cancel)
+	// This ensures the order executes immediately or gets canceled entirely
+	orderReq.OrderConfiguration.LimitLimitIoc = &struct {
 		BaseSize   string `json:"base_size"`
 		LimitPrice string `json:"limit_price"`
 	}{
@@ -294,7 +299,7 @@ func (c *CoinbaseClient) createOrder(side, size string, price float64) (*Order, 
 		ClientOrderID: clientOrderID,
 		ProductID:     c.tradingPair,
 		Side:          side,
-		Type:          "MARKET",
+		Type:          "LIMIT_IOC", // Updated to reflect IOC order type
 		Size:          size,
 		Price:         fmt.Sprintf("%.8f", price),
 		Status:        "PENDING",
@@ -305,7 +310,55 @@ func (c *CoinbaseClient) createOrder(side, size string, price float64) (*Order, 
 	if os.Getenv("LOG_LEVEL") == "DEBUG" {
 		c.logger.Printf("Successfully created %s order: %s", side, order.ID)
 	}
+
+	// Small pause to allow Coinbase and market to process the IOC order
+	// This ensures we get accurate status when we check
+	time.Sleep(500 * time.Millisecond) // 500ms pause
+
+	// For IOC orders, immediately check the status to see if it was filled or canceled
+	// This gives us immediate feedback on whether the order executed
+	orderStatus, err := c.GetOrderStatus(order.ID)
+	if err != nil {
+		c.logger.Printf("Warning: Could not check order status for %s: %v", order.ID, err)
+	} else {
+		// Update the order with the actual status
+		order.Status = orderStatus.Status
+		order.FilledSize = orderStatus.FilledSize
+		order.FilledValue = orderStatus.FilledValue
+		order.AveragePrice = orderStatus.AverageFilledPrice
+
+		// Log the immediate result
+		if os.Getenv("LOG_LEVEL") == "DEBUG" {
+			if orderStatus.Status == "FILLED" {
+				c.logger.Printf("✅ IOC order %s was FILLED: %s @ %s", order.ID, orderStatus.FilledSize, orderStatus.AverageFilledPrice)
+			} else if orderStatus.Status == "CANCELED" {
+				c.logger.Printf("❌ IOC order %s was CANCELED (no liquidity at limit price)", order.ID)
+			} else {
+				c.logger.Printf("⚠️ IOC order %s status: %s", order.ID, orderStatus.Status)
+			}
+		}
+	}
+
 	return order, nil
+}
+
+// IsOrderSuccessful checks if an IOC order was successfully filled
+func (c *CoinbaseClient) IsOrderSuccessful(order *Order) bool {
+	return order.Status == "FILLED"
+}
+
+// GetOrderResult provides a human-readable result of the order execution
+func (c *CoinbaseClient) GetOrderResult(order *Order) string {
+	switch order.Status {
+	case "FILLED":
+		return fmt.Sprintf("✅ Order %s was FILLED: %s @ %s", order.ID, order.FilledSize, order.AveragePrice)
+	case "CANCELED":
+		return fmt.Sprintf("❌ Order %s was CANCELED (no liquidity at limit price)", order.ID)
+	case "PENDING":
+		return fmt.Sprintf("⏳ Order %s is still PENDING", order.ID)
+	default:
+		return fmt.Sprintf("⚠️ Order %s status: %s", order.ID, order.Status)
+	}
 }
 
 // BuyBTC places a buy order for the configured trading pair
@@ -316,6 +369,9 @@ func (c *CoinbaseClient) BuyBTC(size string, price float64) (*Order, error) {
 		c.logger.Printf("Error creating BUY order: %v", err)
 		return nil, fmt.Errorf("failed to create BUY order: %w", err)
 	}
+
+	// Log the result
+	c.logger.Printf("BUY Order Result: %s", c.GetOrderResult(order))
 	return order, nil
 }
 
@@ -327,7 +383,30 @@ func (c *CoinbaseClient) SellBTC(size string, price float64) (*Order, error) {
 		c.logger.Printf("Error creating SELL order: %v", err)
 		return nil, fmt.Errorf("failed to create SELL order: %w", err)
 	}
+
+	// Log the result
+	c.logger.Printf("SELL Order Result: %s", c.GetOrderResult(order))
 	return order, nil
+}
+
+// GetOrderStatus retrieves the status of a specific order
+func (c *CoinbaseClient) GetOrderStatus(orderID string) (*CoinbaseOrder, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	endpoint := fmt.Sprintf("/orders/historical/%s", orderID)
+
+	respBody, err := c.makeRequest(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get order status: %w", err)
+	}
+
+	var order CoinbaseOrder
+	if err := json.Unmarshal(respBody, &order); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal order status response: %w", err)
+	}
+
+	return &order, nil
 }
 
 // GetOrders retrieves all orders
@@ -764,6 +843,90 @@ func (c *CoinbaseClient) GetGraphData(period string) (*GraphData, error) {
 	return graphData, nil
 }
 
+// CalculateGraphSummary calculates summary statistics for the graph
+func (c *CoinbaseClient) CalculateGraphSummary(candles []Candle, trades []Trade, accountValues []AccountValue) struct {
+	TotalTrades    int     `json:"total_trades"`
+	BuyTrades      int     `json:"buy_trades"`
+	SellTrades     int     `json:"sell_trades"`
+	TotalVolume    float64 `json:"total_volume"`
+	TotalFees      float64 `json:"total_fees"`
+	StartingValue  float64 `json:"starting_value"`
+	EndingValue    float64 `json:"ending_value"`
+	ValueChange    float64 `json:"value_change"`
+	ValueChangePct float64 `json:"value_change_pct"`
+	BestPrice      float64 `json:"best_price"`
+	WorstPrice     float64 `json:"worst_price"`
+	AveragePrice   float64 `json:"average_price"`
+} {
+	summary := struct {
+		TotalTrades    int     `json:"total_trades"`
+		BuyTrades      int     `json:"buy_trades"`
+		SellTrades     int     `json:"sell_trades"`
+		TotalVolume    float64 `json:"total_volume"`
+		TotalFees      float64 `json:"total_fees"`
+		StartingValue  float64 `json:"starting_value"`
+		EndingValue    float64 `json:"ending_value"`
+		ValueChange    float64 `json:"value_change"`
+		ValueChangePct float64 `json:"value_change_pct"`
+		BestPrice      float64 `json:"best_price"`
+		WorstPrice     float64 `json:"worst_price"`
+		AveragePrice   float64 `json:"average_price"`
+	}{}
+
+	// Trade statistics
+	summary.TotalTrades = len(trades)
+	var totalVolume, totalFees float64
+	for _, trade := range trades {
+		if trade.Side == "BUY" {
+			summary.BuyTrades++
+		} else {
+			summary.SellTrades++
+		}
+
+		volume, _ := strconv.ParseFloat(trade.FilledValue, 64)
+		fee, _ := strconv.ParseFloat(trade.Fee, 64)
+		totalVolume += volume
+		totalFees += fee
+	}
+	summary.TotalVolume = totalVolume
+	summary.TotalFees = totalFees
+
+	// Price statistics from candles
+	var prices []float64
+	for _, candle := range candles {
+		price, _ := strconv.ParseFloat(candle.Close, 64)
+		prices = append(prices, price)
+	}
+
+	if len(prices) > 0 {
+		summary.BestPrice = prices[0]
+		summary.WorstPrice = prices[0]
+		var sum float64
+		for _, price := range prices {
+			if price > summary.BestPrice {
+				summary.BestPrice = price
+			}
+			if price < summary.WorstPrice {
+				summary.WorstPrice = price
+			}
+			sum += price
+		}
+		summary.AveragePrice = sum / float64(len(prices))
+	}
+
+	// Account value statistics
+	if len(accountValues) > 0 {
+		summary.StartingValue = accountValues[0].TotalUSD
+		summary.EndingValue = accountValues[len(accountValues)-1].TotalUSD
+		summary.ValueChange = summary.EndingValue - summary.StartingValue
+		if summary.StartingValue > 0 {
+			summary.ValueChangePct = (summary.ValueChange / summary.StartingValue) * 100
+		}
+	}
+
+	return summary
+}
+
 // GetTradeHistory retrieves completed trades within a time range
 func (c *CoinbaseClient) GetTradeHistory(startTime, endTime time.Time) ([]Trade, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -984,158 +1147,4 @@ func (c *CoinbaseClient) CalculateIndicatorsForGraph(candles []Candle) struct {
 		MACD:   macd,
 		Signal: signal,
 	}
-}
-
-// CalculateGraphSummary calculates summary statistics for the graph
-func (c *CoinbaseClient) CalculateGraphSummary(candles []Candle, trades []Trade, accountValues []AccountValue) struct {
-	TotalTrades    int     `json:"total_trades"`
-	BuyTrades      int     `json:"buy_trades"`
-	SellTrades     int     `json:"sell_trades"`
-	TotalVolume    float64 `json:"total_volume"`
-	TotalFees      float64 `json:"total_fees"`
-	StartingValue  float64 `json:"starting_value"`
-	EndingValue    float64 `json:"ending_value"`
-	ValueChange    float64 `json:"value_change"`
-	ValueChangePct float64 `json:"value_change_pct"`
-	BestPrice      float64 `json:"best_price"`
-	WorstPrice     float64 `json:"worst_price"`
-	AveragePrice   float64 `json:"average_price"`
-} {
-	summary := struct {
-		TotalTrades    int     `json:"total_trades"`
-		BuyTrades      int     `json:"buy_trades"`
-		SellTrades     int     `json:"sell_trades"`
-		TotalVolume    float64 `json:"total_volume"`
-		TotalFees      float64 `json:"total_fees"`
-		StartingValue  float64 `json:"starting_value"`
-		EndingValue    float64 `json:"ending_value"`
-		ValueChange    float64 `json:"value_change"`
-		ValueChangePct float64 `json:"value_change_pct"`
-		BestPrice      float64 `json:"best_price"`
-		WorstPrice     float64 `json:"worst_price"`
-		AveragePrice   float64 `json:"average_price"`
-	}{}
-
-	// Trade statistics
-	summary.TotalTrades = len(trades)
-	var totalVolume, totalFees float64
-	for _, trade := range trades {
-		if trade.Side == "BUY" {
-			summary.BuyTrades++
-		} else {
-			summary.SellTrades++
-		}
-
-		volume, _ := strconv.ParseFloat(trade.FilledValue, 64)
-		fee, _ := strconv.ParseFloat(trade.Fee, 64)
-		totalVolume += volume
-		totalFees += fee
-	}
-	summary.TotalVolume = totalVolume
-	summary.TotalFees = totalFees
-
-	// Price statistics from candles
-	var prices []float64
-	for _, candle := range candles {
-		price, _ := strconv.ParseFloat(candle.Close, 64)
-		prices = append(prices, price)
-	}
-
-	if len(prices) > 0 {
-		summary.BestPrice = prices[0]
-		summary.WorstPrice = prices[0]
-		var sum float64
-		for _, price := range prices {
-			if price > summary.BestPrice {
-				summary.BestPrice = price
-			}
-			if price < summary.WorstPrice {
-				summary.WorstPrice = price
-			}
-			sum += price
-		}
-		summary.AveragePrice = sum / float64(len(prices))
-	}
-
-	// Account value statistics
-	if len(accountValues) > 0 {
-		summary.StartingValue = accountValues[0].TotalUSD
-		summary.EndingValue = accountValues[len(accountValues)-1].TotalUSD
-		summary.ValueChange = summary.EndingValue - summary.StartingValue
-		if summary.StartingValue > 0 {
-			summary.ValueChangePct = (summary.ValueChange / summary.StartingValue) * 100
-		}
-	}
-
-	return summary
-}
-
-// CalculateGraphSummaryFromCandles calculates summary statistics for the graph from candles only
-func (c *CoinbaseClient) CalculateGraphSummaryFromCandles(candles []Candle) struct {
-	TotalTrades    int     `json:"total_trades"`
-	BuyTrades      int     `json:"buy_trades"`
-	SellTrades     int     `json:"sell_trades"`
-	TotalVolume    float64 `json:"total_volume"`
-	TotalFees      float64 `json:"total_fees"`
-	StartingValue  float64 `json:"starting_value"`
-	EndingValue    float64 `json:"ending_value"`
-	ValueChange    float64 `json:"value_change"`
-	ValueChangePct float64 `json:"value_change_pct"`
-	BestPrice      float64 `json:"best_price"`
-	WorstPrice     float64 `json:"worst_price"`
-	AveragePrice   float64 `json:"average_price"`
-} {
-	summary := struct {
-		TotalTrades    int     `json:"total_trades"`
-		BuyTrades      int     `json:"buy_trades"`
-		SellTrades     int     `json:"sell_trades"`
-		TotalVolume    float64 `json:"total_volume"`
-		TotalFees      float64 `json:"total_fees"`
-		StartingValue  float64 `json:"starting_value"`
-		EndingValue    float64 `json:"ending_value"`
-		ValueChange    float64 `json:"value_change"`
-		ValueChangePct float64 `json:"value_change_pct"`
-		BestPrice      float64 `json:"best_price"`
-		WorstPrice     float64 `json:"worst_price"`
-		AveragePrice   float64 `json:"average_price"`
-	}{}
-
-	// Trade statistics
-	summary.TotalTrades = 0 // No trades in this simplified summary
-	var totalVolume, totalFees float64
-	var prices []float64
-
-	for _, candle := range candles {
-		price, _ := strconv.ParseFloat(candle.Close, 64)
-		prices = append(prices, price)
-	}
-
-	summary.TotalVolume = totalVolume
-	summary.TotalFees = totalFees
-
-	// Price statistics
-	if len(prices) > 0 {
-		summary.BestPrice = prices[0]
-		summary.WorstPrice = prices[0]
-		var sum float64
-		for _, price := range prices {
-			if price > summary.BestPrice {
-				summary.BestPrice = price
-			}
-			if price < summary.WorstPrice {
-				summary.WorstPrice = price
-			}
-			sum += price
-		}
-		summary.AveragePrice = sum / float64(len(prices))
-	}
-
-	// Account value statistics
-	// This simplified summary does not track account values over time
-	summary.StartingValue = 0
-	summary.EndingValue = 0
-	summary.ValueChange = 0
-	summary.ValueChangePct = 0
-
-	return summary
 }

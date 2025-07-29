@@ -264,14 +264,14 @@ func startSignalPolling(client *client.CoinbaseClient, webhookURL string) {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
 
-	log.Printf("🚀 Background signal polling started - checking every 10 minutes")
+	log.Printf("[COINBASE-INFO] 🚀 Background signal polling started - checking every 10 minutes")
 
 	// Send startup webhook to establish baseline position
-	log.Printf("🔍 Sending startup webhook with current market position...")
+	log.Printf("[COINBASE-INFO] 🔍 Sending startup webhook with current market position...")
 	sendStartupWebhook(client, webhookURL)
 
 	// Run initial check immediately
-	log.Printf("🔍 Running initial signal check...")
+	log.Printf("[COINBASE-INFO] 🔍 Running initial signal check...")
 	checkSignal(client)
 
 	// Continue polling every 10 minutes
@@ -284,20 +284,20 @@ func startSignalPolling(client *client.CoinbaseClient, webhookURL string) {
 func sendStartupWebhook(client *client.CoinbaseClient, webhookURL string) {
 	// Track current asset value
 	if err := client.TrackAssetValue(); err != nil {
-		log.Printf("⚠️ Failed to track asset value for startup webhook: %v", err)
+		log.Printf("[COINBASE-INFO] ⚠️ Failed to track asset value for startup webhook: %v", err)
 	}
 
 	// Get current signal to establish baseline
 	signal, err := client.GetSignalLightweight()
 	if err != nil {
-		log.Printf("❌ Failed to get signal for startup webhook: %v", err)
+		log.Printf("[COINBASE-INFO] ❌ Failed to get signal for startup webhook: %v", err)
 		return
 	}
 
 	// Create startup webhook request
 	req, err := http.NewRequest("GET", webhookURL, nil)
 	if err != nil {
-		log.Printf("❌ Failed to create startup webhook request: %v", err)
+		log.Printf("[COINBASE-INFO] ❌ Failed to create startup webhook request: %v", err)
 		return
 	}
 
@@ -331,61 +331,57 @@ func sendStartupWebhook(client *client.CoinbaseClient, webhookURL string) {
 	// Send startup webhook
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		log.Printf("❌ Startup webhook failed: %v", err)
+		log.Printf("[COINBASE-INFO] ❌ Startup webhook failed: %v", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		log.Printf("✅ Startup webhook sent successfully to %s", webhookURL)
+		log.Printf("[COINBASE-INFO] ✅ Startup webhook sent successfully to %s", webhookURL)
 	} else {
-		log.Printf("⚠️ Startup webhook returned status %d", resp.StatusCode)
+		log.Printf("[COINBASE-INFO] ⚠️ Startup webhook returned status %d", resp.StatusCode)
 	}
 }
 
-// getCurrentTrendState determines the current trend state from signal indicators
+// getCurrentTrendState determines the current trend from signal indicators
 func getCurrentTrendState(signal *client.SignalResponse) string {
-	if len(signal.Triggers) > 0 {
+	if signal.BearishSignal {
 		return "bearish"
 	}
-
-	// Analyze indicators to determine trend
-	indicators := signal.Indicators
-
-	// Simple trend determination based on MACD and RSI
-	if indicators.MACD < 0 && indicators.RSI < 50 {
-		return "bearish"
-	} else if indicators.MACD > 0 && indicators.RSI > 50 {
-		return "bullish"
-	} else {
-		return "neutral"
-	}
+	return "neutral"
 }
 
-// checkSignal performs a single signal check and logs the result
+// checkSignal performs a signal check and sends webhook if needed
 func checkSignal(client *client.CoinbaseClient) {
 	// Only log in debug mode to reduce noise
 	if os.Getenv("LOG_LEVEL") == "DEBUG" {
-		log.Printf("🔍 Checking for trading signals (lightweight mode)...")
+		log.Printf("[COINBASE-INFO] 🔍 Checking for trading signals (lightweight mode)...")
 	}
 
 	// Track asset value before checking signals
 	if err := client.TrackAssetValue(); err != nil {
-		log.Printf("⚠️ Failed to track asset value: %v", err)
+		log.Printf("[COINBASE-INFO] ⚠️ Failed to track asset value: %v", err)
 	}
 
 	signal, err := client.GetSignalLightweight() // Uses lightweight signal
 	if err != nil {
-		log.Printf("❌ Signal check failed: %v", err)
+		log.Printf("[COINBASE-INFO] ❌ Signal check failed: %v", err)
 		return
 	}
 
+	// Log signal check result
+	if signal.BearishSignal {
+		log.Printf("[COINBASE-INFO] 🔄 Signal check: BEARISH signal detected with triggers: %v", signal.Triggers)
+	} else {
+		log.Printf("[COINBASE-INFO] ✅ Signal check: No bearish signals detected (trend: neutral)")
+	}
+
 	if len(signal.Triggers) > 0 { // Check if any triggers are present
-		log.Printf("🔄 TREND CHANGE DETECTED: %v", signal.Triggers)
+		log.Printf("[COINBASE-INFO] 🔄 TREND CHANGE DETECTED: %v", signal.Triggers)
 	} else {
 		// Only log in debug mode to reduce noise
 		if os.Getenv("LOG_LEVEL") == "DEBUG" {
-			log.Printf("✅ No trend changes detected")
+			log.Printf("[COINBASE-INFO] ✅ No trend changes detected")
 		}
 	}
 }
