@@ -101,6 +101,12 @@ type TechnicalIndicators struct {
 	CurrentPrice    float64 `json:"current_price"`
 	AverageVolume   float64 `json:"average_volume"`
 	LastVolume      float64 `json:"last_volume"`
+	// Triangle analysis
+	TrianglePattern  string    `json:"triangle_pattern"`  // "ascending", "descending", "symmetrical", "none"
+	TriangleBreakout string    `json:"triangle_breakout"` // "bullish", "bearish", "none"
+	TriangleStrength float64   `json:"triangle_strength"` // 0.0 to 1.0, confidence in pattern
+	TriangleHighs    []float64 `json:"triangle_highs"`    // High points of triangle
+	TriangleLows     []float64 `json:"triangle_lows"`     // Low points of triangle
 }
 
 // SignalResponse represents the response from the signal endpoint

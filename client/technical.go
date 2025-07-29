@@ -188,6 +188,270 @@ func detectVolumeSpike(volumes []float64) (bool, float64, float64) {
 	return volumeSpike, averageVolume, lastVolume
 }
 
+// detectTrianglePattern analyzes price action to identify triangle patterns
+func detectTrianglePattern(highs, lows []float64) (string, float64, []float64, []float64) {
+	if len(highs) < 10 || len(lows) < 10 {
+		return "none", 0.0, nil, nil
+	}
+
+	// Find significant highs and lows (peaks and troughs)
+	highPoints := findPeaks(highs, 3) // At least 3 high points
+	lowPoints := findTroughs(lows, 3) // At least 3 low points
+
+	if len(highPoints) < 3 || len(lowPoints) < 3 {
+		return "none", 0.0, nil, nil
+	}
+
+	// Calculate trend lines
+	highSlope, highIntercept := calculateTrendLine(highPoints)
+	lowSlope, lowIntercept := calculateTrendLine(lowPoints)
+
+	// Determine triangle type based on trend line slopes
+	triangleType := classifyTriangle(highSlope, highIntercept, lowSlope, lowIntercept)
+	strength := calculateTriangleStrength(highPoints, lowPoints, highSlope, highIntercept, lowSlope, lowIntercept)
+
+	return triangleType, strength, highPoints, lowPoints
+}
+
+// findPeaks finds significant high points in the price data
+func findPeaks(prices []float64, minPoints int) []float64 {
+	var peaks []float64
+	window := 3 // Look for peaks in a 3-point window
+
+	for i := window; i < len(prices)-window; i++ {
+		isPeak := true
+		for j := i - window; j <= i+window; j++ {
+			if j == i {
+				continue
+			}
+			if prices[j] >= prices[i] {
+				isPeak = false
+				break
+			}
+		}
+		if isPeak {
+			peaks = append(peaks, prices[i])
+		}
+	}
+
+	// If we don't have enough peaks, return the highest points
+	if len(peaks) < minPoints {
+		peaks = findHighestPoints(prices, minPoints)
+	}
+
+	return peaks
+}
+
+// findTroughs finds significant low points in the price data
+func findTroughs(prices []float64, minPoints int) []float64 {
+	var troughs []float64
+	window := 3 // Look for troughs in a 3-point window
+
+	for i := window; i < len(prices)-window; i++ {
+		isTrough := true
+		for j := i - window; j <= i+window; j++ {
+			if j == i {
+				continue
+			}
+			if prices[j] <= prices[i] {
+				isTrough = false
+				break
+			}
+		}
+		if isTrough {
+			troughs = append(troughs, prices[i])
+		}
+	}
+
+	// If we don't have enough troughs, return the lowest points
+	if len(troughs) < minPoints {
+		troughs = findLowestPoints(prices, minPoints)
+	}
+
+	return troughs
+}
+
+// findHighestPoints finds the highest points in the price data
+func findHighestPoints(prices []float64, count int) []float64 {
+	if len(prices) < count {
+		return prices
+	}
+
+	// Sort prices in descending order and take the top 'count'
+	sorted := make([]float64, len(prices))
+	copy(sorted, prices)
+
+	// Simple bubble sort for small datasets
+	for i := 0; i < len(sorted)-1; i++ {
+		for j := 0; j < len(sorted)-i-1; j++ {
+			if sorted[j] < sorted[j+1] {
+				sorted[j], sorted[j+1] = sorted[j+1], sorted[j]
+			}
+		}
+	}
+
+	return sorted[:count]
+}
+
+// findLowestPoints finds the lowest points in the price data
+func findLowestPoints(prices []float64, count int) []float64 {
+	if len(prices) < count {
+		return prices
+	}
+
+	// Sort prices in ascending order and take the bottom 'count'
+	sorted := make([]float64, len(prices))
+	copy(sorted, prices)
+
+	// Simple bubble sort for small datasets
+	for i := 0; i < len(sorted)-1; i++ {
+		for j := 0; j < len(sorted)-i-1; j++ {
+			if sorted[j] > sorted[j+1] {
+				sorted[j], sorted[j+1] = sorted[j+1], sorted[j]
+			}
+		}
+	}
+
+	return sorted[:count]
+}
+
+// calculateTrendLine calculates the slope and intercept of a trend line
+func calculateTrendLine(points []float64) (float64, float64) {
+	if len(points) < 2 {
+		return 0, 0
+	}
+
+	// Simple linear regression
+	n := float64(len(points))
+	var sumX, sumY, sumXY, sumX2 float64
+
+	for i, y := range points {
+		x := float64(i)
+		sumX += x
+		sumY += y
+		sumXY += x * y
+		sumX2 += x * x
+	}
+
+	denominator := n*sumX2 - sumX*sumX
+	if denominator == 0 {
+		return 0, sumY / n
+	}
+
+	slope := (n*sumXY - sumX*sumY) / denominator
+	intercept := (sumY - slope*sumX) / n
+
+	return slope, intercept
+}
+
+// classifyTriangle determines the type of triangle based on trend line slopes
+func classifyTriangle(highSlope, highIntercept, lowSlope, lowIntercept float64) string {
+
+	// Tolerance for slope comparison
+	tolerance := 0.001
+
+	// Ascending triangle: flat highs, rising lows
+	if math.Abs(highSlope) < tolerance && lowSlope > tolerance {
+		return "ascending"
+	}
+
+	// Descending triangle: falling highs, flat lows
+	if highSlope < -tolerance && math.Abs(lowSlope) < tolerance {
+		return "descending"
+	}
+
+	// Symmetrical triangle: converging trend lines
+	if highSlope < -tolerance && lowSlope > tolerance {
+		return "symmetrical"
+	}
+
+	return "none"
+}
+
+// calculateTriangleStrength calculates the confidence in the triangle pattern
+func calculateTriangleStrength(highPoints, lowPoints []float64, highSlope, highIntercept, lowSlope, lowIntercept float64) float64 {
+	if len(highPoints) < 3 || len(lowPoints) < 3 {
+		return 0.0
+	}
+
+	// Calculate R-squared for trend lines (how well they fit)
+	highR2 := calculateRSquared(highPoints, highSlope, highIntercept)
+	lowR2 := calculateRSquared(lowPoints, lowSlope, lowIntercept)
+
+	// Average R-squared as strength indicator
+	strength := (highR2 + lowR2) / 2.0
+
+	// Normalize to 0.0-1.0 range
+	return math.Min(strength, 1.0)
+}
+
+// calculateRSquared calculates the R-squared value for a trend line
+func calculateRSquared(points []float64, slope, intercept float64) float64 {
+	if len(points) < 2 {
+		return 0.0
+	}
+
+	var sumY, sumY2, sumResiduals float64
+	for i, y := range points {
+		x := float64(i)
+		predicted := slope*x + intercept
+		residual := y - predicted
+
+		sumY += y
+		sumY2 += y * y
+		sumResiduals += residual * residual
+	}
+
+	meanY := sumY / float64(len(points))
+	var sumSquaredMean float64
+	for _, y := range points {
+		sumSquaredMean += (y - meanY) * (y - meanY)
+	}
+
+	if sumSquaredMean == 0 {
+		return 1.0
+	}
+
+	r2 := 1.0 - (sumResiduals / sumSquaredMean)
+	return math.Max(0.0, r2)
+}
+
+// detectTriangleBreakout detects if price has broken out of the triangle pattern
+func detectTriangleBreakout(currentPrice float64, triangleType string, highSlope, highIntercept, lowSlope, lowIntercept float64) string {
+	if triangleType == "none" {
+		return "none"
+	}
+
+	// Calculate current trend line values (assuming we're at the latest point)
+	latestIndex := 144.0 // Assuming 144 data points for 12-hour analysis
+	currentHighLevel := highSlope*latestIndex + highIntercept
+	currentLowLevel := lowSlope*latestIndex + lowIntercept
+
+	// Detect breakout based on triangle type
+	switch triangleType {
+	case "ascending":
+		if currentPrice > currentHighLevel {
+			return "bullish"
+		} else if currentPrice < currentLowLevel {
+			return "bearish"
+		}
+	case "descending":
+		if currentPrice > currentHighLevel {
+			return "bullish"
+		} else if currentPrice < currentLowLevel {
+			return "bearish"
+		}
+	case "symmetrical":
+		if currentPrice > currentHighLevel {
+			return "bullish"
+		} else if currentPrice < currentLowLevel {
+			return "bearish"
+		}
+	}
+
+	return "none"
+}
+
 // calculateTechnicalIndicatorsParallel calculates all technical indicators in parallel with early termination
 func calculateTechnicalIndicatorsParallel(candles []Candle) TechnicalIndicators {
 	if len(candles) < 50 { // Reduced minimum for lightweight mode
@@ -382,13 +646,45 @@ func calculateTechnicalIndicatorsParallel(candles []Candle) TechnicalIndicators 
 		}
 	}()
 
+	// Triangle Pattern Analysis (medium priority)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			triangleType, strength, highPoints, lowPoints := detectTrianglePattern(highs, lows)
+			select {
+			case <-ctx.Done():
+				return
+			case resultChan <- indicatorResult{"trianglePattern", triangleType}:
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case resultChan <- indicatorResult{"triangleStrength", strength}:
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case resultChan <- indicatorResult{"triangleHighs", highPoints}:
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case resultChan <- indicatorResult{"triangleLows", lowPoints}:
+			}
+		}
+	}()
+
 	// Stream processor that checks for signals as they arrive
 	go func() {
 		indicators := TechnicalIndicators{
 			CurrentPrice: prices[len(prices)-1],
 		}
 		completedIndicators := 0
-		totalIndicators := 8 // Total number of indicator groups
+		totalIndicators := 9 // Updated to include triangle analysis
 
 		for result := range resultChan {
 			// Store the result
@@ -415,11 +711,27 @@ func calculateTechnicalIndicatorsParallel(candles []Candle) TechnicalIndicators 
 				indicators.AverageVolume = result.value.(float64)
 			case "lastVolume":
 				indicators.LastVolume = result.value.(float64)
+			case "trianglePattern":
+				indicators.TrianglePattern = result.value.(string)
+			case "triangleStrength":
+				indicators.TriangleStrength = result.value.(float64)
+			case "triangleHighs":
+				indicators.TriangleHighs = result.value.([]float64)
+			case "triangleLows":
+				indicators.TriangleLows = result.value.([]float64)
 			}
 
 			// Check if we have enough indicators to detect a signal
 			if completedIndicators < totalIndicators {
 				completedIndicators++
+			}
+
+			// Calculate triangle breakout if we have triangle data
+			if indicators.TrianglePattern != "" && len(indicators.TriangleHighs) > 0 && len(indicators.TriangleLows) > 0 {
+				// Calculate trend lines for breakout detection
+				highSlope, highIntercept := calculateTrendLine(indicators.TriangleHighs)
+				lowSlope, lowIntercept := calculateTrendLine(indicators.TriangleLows)
+				indicators.TriangleBreakout = detectTriangleBreakout(indicators.CurrentPrice, indicators.TrianglePattern, highSlope, highIntercept, lowSlope, lowIntercept)
 			}
 
 			// Check for early signal detection (after we have key indicators)

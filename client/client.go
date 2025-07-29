@@ -554,6 +554,14 @@ func (c *CoinbaseClient) calculateTriggers(indicators TechnicalIndicators, trend
 		if indicators.CurrentPrice < indicators.EMA200 && indicators.RSI < 45 {
 			triggers = append(triggers, "MAJOR_TREND_BREAKDOWN")
 		}
+		// Triangle pattern triggers
+		if indicators.TrianglePattern != "none" && indicators.TriangleStrength > 0.7 {
+			if indicators.TriangleBreakout == "bearish" {
+				triggers = append(triggers, "TRIANGLE_BEARISH_BREAKOUT")
+			} else if indicators.TrianglePattern == "descending" {
+				triggers = append(triggers, "DESCENDING_TRIANGLE")
+			}
+		}
 	} else if trend == "bullish" {
 		// Bullish triggers
 		if indicators.MACD > indicators.SignalLine && indicators.MACD > 0 {
@@ -570,6 +578,14 @@ func (c *CoinbaseClient) calculateTriggers(indicators TechnicalIndicators, trend
 		}
 		if indicators.CurrentPrice > indicators.EMA200 && indicators.RSI > 55 {
 			triggers = append(triggers, "MAJOR_TREND_BREAKOUT")
+		}
+		// Triangle pattern triggers
+		if indicators.TrianglePattern != "none" && indicators.TriangleStrength > 0.7 {
+			if indicators.TriangleBreakout == "bullish" {
+				triggers = append(triggers, "TRIANGLE_BULLISH_BREAKOUT")
+			} else if indicators.TrianglePattern == "ascending" {
+				triggers = append(triggers, "ASCENDING_TRIANGLE")
+			}
 		}
 	}
 
@@ -660,6 +676,17 @@ func (c *CoinbaseClient) calculateBearishScore(indicators TechnicalIndicators) f
 		score += 0.5
 	}
 
+	// Triangle pattern analysis (weight: 1.5 - consolidation/breakout)
+	if indicators.TrianglePattern != "none" && indicators.TriangleStrength > 0.7 {
+		if indicators.TriangleBreakout == "bearish" {
+			score += 2.0 // Strong bearish breakout
+		} else if indicators.TrianglePattern == "descending" {
+			score += 1.5 // Descending triangle (bearish pattern)
+		} else if indicators.TrianglePattern == "symmetrical" && indicators.TriangleBreakout == "none" {
+			score += 0.5 // Consolidation (neutral)
+		}
+	}
+
 	return score
 }
 
@@ -728,6 +755,17 @@ func (c *CoinbaseClient) calculateBullishScore(indicators TechnicalIndicators) f
 	// Volume spike confirmation (weight: 0.5 - volume confirmation)
 	if indicators.VolumeSpike && indicators.PriceDropPct12h > 2 {
 		score += 0.5
+	}
+
+	// Triangle pattern analysis (weight: 1.5 - consolidation/breakout)
+	if indicators.TrianglePattern != "none" && indicators.TriangleStrength > 0.7 {
+		if indicators.TriangleBreakout == "bullish" {
+			score += 2.0 // Strong bullish breakout
+		} else if indicators.TrianglePattern == "ascending" {
+			score += 1.5 // Ascending triangle (bullish pattern)
+		} else if indicators.TrianglePattern == "symmetrical" && indicators.TriangleBreakout == "none" {
+			score += 0.5 // Consolidation (neutral)
+		}
 	}
 
 	return score
