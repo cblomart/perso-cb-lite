@@ -347,9 +347,16 @@ func sendStartupWebhook(client *client.CoinbaseClient, webhookURL string) {
 func getCurrentTrendState(signal *client.SignalResponse) string {
 	if signal.BearishSignal {
 		return "bearish"
+	} else if len(signal.Triggers) > 0 {
+		// If there are triggers but not bearish, it's likely bullish
+		return "bullish"
 	}
 	return "neutral"
 }
+
+var (
+	lastTrendState = "neutral" // Track the previous trend state
+)
 
 // checkSignal performs a signal check and sends webhook if needed
 func checkSignal(client *client.CoinbaseClient) {
@@ -369,12 +376,24 @@ func checkSignal(client *client.CoinbaseClient) {
 		return
 	}
 
-	// Log signal check result
+	// Determine current trend state
+	currentTrend := "neutral"
 	if signal.BearishSignal {
-		log.Printf("[COINBASE-INFO] 🔄 Signal check: BEARISH signal detected with triggers: %v", signal.Triggers)
-	} else {
-		log.Printf("[COINBASE-INFO] ✅ Signal check: No bearish signals detected (trend: neutral)")
+		currentTrend = "bearish"
+	} else if len(signal.Triggers) > 0 {
+		// Check if there are bullish signals (opposite of bearish)
+		currentTrend = "bullish"
 	}
+
+	// Log signal check result focusing on trend changes
+	if len(signal.Triggers) > 0 {
+		log.Printf("[COINBASE-INFO] 🔄 Signal check: TREND CHANGE detected - %s → %s with triggers: %v", lastTrendState, currentTrend, signal.Triggers)
+	} else {
+		log.Printf("[COINBASE-INFO] ✅ Signal check: No trend change - current trend: %s", currentTrend)
+	}
+
+	// Update the last trend state for next comparison
+	lastTrendState = currentTrend
 
 	if len(signal.Triggers) > 0 { // Check if any triggers are present
 		log.Printf("[COINBASE-INFO] 🔄 TREND CHANGE DETECTED: %v", signal.Triggers)

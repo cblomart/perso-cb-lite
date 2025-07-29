@@ -337,7 +337,7 @@ func calculateTechnicalIndicatorsParallel(candles []Candle) TechnicalIndicators 
 		}
 	}()
 
-	// Price Drop Percentage (high priority - quick calculation)
+	// Price drop percentage over 12 hours (for trend change detection)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -345,12 +345,12 @@ func calculateTechnicalIndicatorsParallel(candles []Candle) TechnicalIndicators 
 		case <-ctx.Done():
 			return
 		default:
-			priceDropPeriod := 48 // Default for 5-minute candles
+			priceDropPeriod := 144 // 12 hours for 5-minute candles (144 * 5 minutes = 720 minutes = 12 hours)
 			priceDropPct4h := calculatePriceDropPct(prices, priceDropPeriod)
 			select {
 			case <-ctx.Done():
 				return
-			case resultChan <- indicatorResult{"priceDropPct4h", priceDropPct4h}:
+			case resultChan <- indicatorResult{"priceDropPct12h", priceDropPct4h}:
 			}
 		}
 	}()
@@ -407,8 +407,8 @@ func calculateTechnicalIndicatorsParallel(candles []Candle) TechnicalIndicators 
 				indicators.RSI = result.value.(float64)
 			case "adx":
 				indicators.ADX = result.value.(float64)
-			case "priceDropPct4h":
-				indicators.PriceDropPct4h = result.value.(float64)
+			case "priceDropPct12h":
+				indicators.PriceDropPct12h = result.value.(float64)
 			case "volumeSpike":
 				indicators.VolumeSpike = result.value.(bool)
 			case "averageVolume":
@@ -491,7 +491,7 @@ func checkBearishSignals(indicators TechnicalIndicators) (bool, []string) {
 	}
 
 	// Significant price drop (trend reversal signal)
-	if indicators.PriceDropPct4h < -5 {
+	if indicators.PriceDropPct12h < -5 {
 		triggers = append(triggers, "PRICE_TREND_REVERSAL")
 	}
 

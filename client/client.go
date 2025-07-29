@@ -461,8 +461,8 @@ func (c *CoinbaseClient) detectImmediateDip(indicators TechnicalIndicators) (boo
 	dipScore := 0.0
 
 	// Price drop detection (weight: 2.0 - direct price action)
-	if indicators.PriceDropPct4h < -3 {
-		dropStrength := math.Abs(indicators.PriceDropPct4h)
+	if indicators.PriceDropPct12h < -3 {
+		dropStrength := math.Abs(indicators.PriceDropPct12h)
 		if dropStrength > 7 {
 			dipScore += 3.0 // Strong drop
 			triggers = append(triggers, "STRONG_PRICE_DROP")
@@ -507,7 +507,7 @@ func (c *CoinbaseClient) detectImmediateDip(indicators TechnicalIndicators) (boo
 	}
 
 	// Volume spike with price drop (weight: 1.0 - confirmation)
-	if indicators.VolumeSpike && indicators.PriceDropPct4h < -2 {
+	if indicators.VolumeSpike && indicators.PriceDropPct12h < -2 {
 		dipScore += 1.0
 		triggers = append(triggers, "VOLUME_SPIKE_WITH_DROP")
 	}
@@ -548,7 +548,7 @@ func (c *CoinbaseClient) calculateTriggers(indicators TechnicalIndicators, trend
 		if indicators.RSI < 40 {
 			triggers = append(triggers, "RSI_MOMENTUM_BREAKDOWN")
 		}
-		if indicators.PriceDropPct4h < -5 {
+		if indicators.PriceDropPct12h < -5 {
 			triggers = append(triggers, "PRICE_TREND_REVERSAL")
 		}
 		if indicators.CurrentPrice < indicators.EMA200 && indicators.RSI < 45 {
@@ -565,7 +565,7 @@ func (c *CoinbaseClient) calculateTriggers(indicators TechnicalIndicators, trend
 		if indicators.RSI > 60 {
 			triggers = append(triggers, "RSI_MOMENTUM_BUILDUP")
 		}
-		if indicators.PriceDropPct4h > 5 {
+		if indicators.PriceDropPct12h > 5 {
 			triggers = append(triggers, "PRICE_TREND_REVERSAL")
 		}
 		if indicators.CurrentPrice > indicators.EMA200 && indicators.RSI > 55 {
@@ -625,8 +625,8 @@ func (c *CoinbaseClient) calculateBearishScore(indicators TechnicalIndicators) f
 	}
 
 	// Price drop percentage (weight: 1.5 - direct price action)
-	if indicators.PriceDropPct4h < 0 {
-		dropStrength := math.Abs(indicators.PriceDropPct4h)
+	if indicators.PriceDropPct12h < 0 {
+		dropStrength := math.Abs(indicators.PriceDropPct12h)
 		if dropStrength > 5 {
 			score += 2.0 // Strong drop
 		} else if dropStrength > 3 {
@@ -656,7 +656,7 @@ func (c *CoinbaseClient) calculateBearishScore(indicators TechnicalIndicators) f
 	}
 
 	// Volume spike confirmation (weight: 0.5 - volume confirmation)
-	if indicators.VolumeSpike && indicators.PriceDropPct4h < -2 {
+	if indicators.VolumeSpike && indicators.PriceDropPct12h < -2 {
 		score += 0.5
 	}
 
@@ -695,8 +695,8 @@ func (c *CoinbaseClient) calculateBullishScore(indicators TechnicalIndicators) f
 	}
 
 	// Price increase percentage (weight: 1.5 - direct price action)
-	if indicators.PriceDropPct4h > 0 {
-		gainStrength := indicators.PriceDropPct4h
+	if indicators.PriceDropPct12h > 0 {
+		gainStrength := indicators.PriceDropPct12h
 		if gainStrength > 5 {
 			score += 2.0 // Strong gain
 		} else if gainStrength > 3 {
@@ -726,7 +726,7 @@ func (c *CoinbaseClient) calculateBullishScore(indicators TechnicalIndicators) f
 	}
 
 	// Volume spike confirmation (weight: 0.5 - volume confirmation)
-	if indicators.VolumeSpike && indicators.PriceDropPct4h > 2 {
+	if indicators.VolumeSpike && indicators.PriceDropPct12h > 2 {
 		score += 0.5
 	}
 

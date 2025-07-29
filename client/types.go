@@ -89,18 +89,18 @@ type MarketState struct {
 
 // TechnicalIndicators represents calculated technical analysis indicators
 type TechnicalIndicators struct {
-	MACD           float64 `json:"macd"`
-	SignalLine     float64 `json:"signal_line"`
-	EMA12          float64 `json:"ema_12"`
-	EMA26          float64 `json:"ema_26"`
-	EMA200         float64 `json:"ema_200"`
-	RSI            float64 `json:"rsi"`
-	ADX            float64 `json:"adx"`
-	PriceDropPct4h float64 `json:"price_drop_pct_4h"`
-	VolumeSpike    bool    `json:"volume_spike"`
-	CurrentPrice   float64 `json:"current_price"`
-	AverageVolume  float64 `json:"average_volume"`
-	LastVolume     float64 `json:"last_volume"`
+	MACD            float64 `json:"macd"`
+	SignalLine      float64 `json:"signal_line"`
+	EMA12           float64 `json:"ema_12"`
+	EMA26           float64 `json:"ema_26"`
+	EMA200          float64 `json:"ema_200"`
+	RSI             float64 `json:"rsi"`
+	ADX             float64 `json:"adx"`
+	PriceDropPct12h float64 `json:"price_drop_pct_12h"`
+	VolumeSpike     bool    `json:"volume_spike"`
+	CurrentPrice    float64 `json:"current_price"`
+	AverageVolume   float64 `json:"average_volume"`
+	LastVolume      float64 `json:"last_volume"`
 }
 
 // SignalResponse represents the response from the signal endpoint
