@@ -232,7 +232,7 @@ func (c *CoinbaseClient) createOrder(side, size string, price float64) (*Order, 
 
 	// Log order placement in debug mode
 	if os.Getenv("LOG_LEVEL") == "DEBUG" {
-		c.logger.Printf("Placing %s IOC order: size=%s, price=%.8f", side, size, price)
+		c.logger.Printf("Placing %s GTC order: size=%s, price=%.8f", side, size, price)
 	}
 
 	// Check balance if possible
@@ -249,9 +249,9 @@ func (c *CoinbaseClient) createOrder(side, size string, price float64) (*Order, 
 		ClientOrderID: clientOrderID,
 	}
 
-	// Configure market order with IOC (Immediate or Cancel)
-	// This ensures the order executes immediately or gets canceled entirely
-	orderReq.OrderConfiguration.LimitLimitIoc = &struct {
+	// Configure market order with GTC (Good Till Cancelled)
+	// Using GTC instead of IOC since the API rejects limit_limit_ioc
+	orderReq.OrderConfiguration.LimitLimitGtc = &struct {
 		BaseSize   string `json:"base_size"`
 		LimitPrice string `json:"limit_price"`
 	}{
@@ -299,7 +299,7 @@ func (c *CoinbaseClient) createOrder(side, size string, price float64) (*Order, 
 		ClientOrderID: clientOrderID,
 		ProductID:     c.tradingPair,
 		Side:          side,
-		Type:          "LIMIT_IOC", // Updated to reflect IOC order type
+		Type:          "LIMIT_GTC", // Updated to reflect GTC order type
 		Size:          size,
 		Price:         fmt.Sprintf("%.8f", price),
 		Status:        "PENDING",
@@ -311,12 +311,12 @@ func (c *CoinbaseClient) createOrder(side, size string, price float64) (*Order, 
 		c.logger.Printf("Successfully created %s order: %s", side, order.ID)
 	}
 
-	// Small pause to allow Coinbase and market to process the IOC order
+	// Small pause to allow Coinbase and market to process the GTC order
 	// This ensures we get accurate status when we check
 	time.Sleep(500 * time.Millisecond) // 500ms pause
 
-	// For IOC orders, immediately check the status to see if it was filled or canceled
-	// This gives us immediate feedback on whether the order executed
+	// For GTC orders, check the status to see if it was filled immediately
+	// GTC orders may fill immediately if the limit price is met
 	orderStatus, err := c.GetOrderStatus(order.ID)
 	if err != nil {
 		c.logger.Printf("Warning: Could not check order status for %s: %v", order.ID, err)
@@ -330,11 +330,11 @@ func (c *CoinbaseClient) createOrder(side, size string, price float64) (*Order, 
 		// Log the immediate result
 		if os.Getenv("LOG_LEVEL") == "DEBUG" {
 			if orderStatus.Status == "FILLED" {
-				c.logger.Printf("✅ IOC order %s was FILLED: %s @ %s", order.ID, orderStatus.FilledSize, orderStatus.AverageFilledPrice)
-			} else if orderStatus.Status == "CANCELED" {
-				c.logger.Printf("❌ IOC order %s was CANCELED (no liquidity at limit price)", order.ID)
+				c.logger.Printf("✅ GTC order %s was FILLED: %s @ %s", order.ID, orderStatus.FilledSize, orderStatus.AverageFilledPrice)
+			} else if orderStatus.Status == "OPEN" {
+				c.logger.Printf("⏳ GTC order %s is OPEN (waiting for limit price)", order.ID)
 			} else {
-				c.logger.Printf("⚠️ IOC order %s status: %s", order.ID, orderStatus.Status)
+				c.logger.Printf("⚠️ GTC order %s status: %s", order.ID, orderStatus.Status)
 			}
 		}
 	}
