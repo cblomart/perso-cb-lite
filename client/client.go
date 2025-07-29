@@ -115,7 +115,7 @@ func NewCoinbaseClient(tradingPair string, webhookURL string, webhookMaxRetries 
 		webhookTimeout:      webhookTimeout,
 		httpClient:          httpClient,
 		startTime:           time.Now(),
-		trendChangeCooldown: 2 * time.Minute, // Reduced from 5 to 2 minutes for more sensitive dip detection
+		trendChangeCooldown: 8 * time.Minute, // Increased from 2 to 8 minutes to reduce signal frequency
 	}, nil
 }
 
@@ -387,11 +387,21 @@ func (c *CoinbaseClient) detectTrendChange(indicators TechnicalIndicators) (bool
 	// Determine current trend state based on indicators
 	currentTrend := c.determineTrendState(indicators)
 
+	// Calculate scores for debug logging
+	bearishScore := c.calculateBearishScore(indicators)
+	bullishScore := c.calculateBullishScore(indicators)
+
+	// Debug logging for weighted scores
+	if os.Getenv("LOG_LEVEL") == "DEBUG" {
+		c.logger.Printf("📊 Weighted Scores - Bearish: %.2f, Bullish: %.2f, Trend: %s",
+			bearishScore, bullishScore, currentTrend)
+	}
+
 	// Check for immediate dip detection (more sensitive)
 	dipDetected, dipTriggers := c.detectImmediateDip(indicators)
 	if dipDetected {
-		// Check shorter cooldown for dips (2 minutes instead of 5)
-		if time.Since(c.lastSignalTime) < 2*time.Minute {
+		// Check longer cooldown for dips (5 minutes instead of 2)
+		if time.Since(c.lastSignalTime) < 5*time.Minute {
 			if os.Getenv("LOG_LEVEL") == "DEBUG" {
 				c.logger.Printf("🕐 Dip detected but cooldown active (last signal: %v ago)",
 					time.Since(c.lastSignalTime))
@@ -420,8 +430,8 @@ func (c *CoinbaseClient) detectTrendChange(indicators TechnicalIndicators) (bool
 
 	// Check if trend has changed
 	if currentTrend != c.lastTrendState && currentTrend != "neutral" {
-		// Check cooldown period to avoid spam (reduced to 3 minutes)
-		if time.Since(c.lastSignalTime) < 3*time.Minute {
+		// Check cooldown period to avoid spam (increased to 8 minutes)
+		if time.Since(c.lastSignalTime) < 8*time.Minute {
 			if os.Getenv("LOG_LEVEL") == "DEBUG" {
 				c.logger.Printf("🕐 Trend change detected but cooldown active (last signal: %v ago)",
 					time.Since(c.lastSignalTime))
@@ -445,41 +455,82 @@ func (c *CoinbaseClient) detectTrendChange(indicators TechnicalIndicators) (bool
 	return false, currentTrend, nil
 }
 
-// detectImmediateDip detects immediate price dips that should trigger alerts
+// detectImmediateDip detects immediate price dips using weighted scoring
 func (c *CoinbaseClient) detectImmediateDip(indicators TechnicalIndicators) (bool, []string) {
 	var triggers []string
+	dipScore := 0.0
 
-	// Immediate price drop detection (more sensitive)
-	if indicators.PriceDropPct4h < -3 { // Reduced from -5% to -3%
-		triggers = append(triggers, "IMMEDIATE_PRICE_DROP")
+	// Price drop detection (weight: 2.0 - direct price action)
+	if indicators.PriceDropPct4h < -3 {
+		dropStrength := math.Abs(indicators.PriceDropPct4h)
+		if dropStrength > 7 {
+			dipScore += 3.0 // Strong drop
+			triggers = append(triggers, "STRONG_PRICE_DROP")
+		} else if dropStrength > 5 {
+			dipScore += 2.0 // Moderate drop
+			triggers = append(triggers, "IMMEDIATE_PRICE_DROP")
+		} else {
+			dipScore += 1.0 // Slight drop
+		}
 	}
 
-	// RSI oversold condition (more sensitive)
-	if indicators.RSI < 35 { // Reduced from 40 to 35
-		triggers = append(triggers, "RSI_OVERSOLD")
+	// RSI oversold condition (weight: 1.5 - momentum)
+	if indicators.RSI < 35 {
+		if indicators.RSI < 25 {
+			dipScore += 2.5 // Extreme oversold
+			triggers = append(triggers, "EXTREME_RSI_OVERSOLD")
+		} else {
+			dipScore += 1.5 // Moderate oversold
+			triggers = append(triggers, "RSI_OVERSOLD")
+		}
 	}
 
-	// MACD bearish crossover (immediate)
-	if indicators.MACD < indicators.SignalLine && indicators.MACD < -0.1 {
-		triggers = append(triggers, "MACD_BEARISH_CROSSOVER")
+	// MACD bearish crossover (weight: 2.0 - trend indicator)
+	if indicators.MACD < indicators.SignalLine {
+		macdStrength := math.Abs(indicators.MACD - indicators.SignalLine)
+		if indicators.MACD < -0.15 {
+			dipScore += 2.5 + (macdStrength * 10) // Strong bearish MACD
+			triggers = append(triggers, "STRONG_MACD_BEARISH")
+		} else if indicators.MACD < -0.05 {
+			dipScore += 2.0 // Moderate bearish MACD
+			triggers = append(triggers, "MACD_BEARISH_CROSSOVER")
+		} else {
+			dipScore += 1.0 // Slight bearish MACD
+		}
 	}
 
-	// EMA bearish crossover (immediate)
+	// EMA bearish crossover (weight: 2.0 - trend indicator)
 	if indicators.EMA12 < indicators.EMA26 {
+		emaStrength := (indicators.EMA26 - indicators.EMA12) / indicators.EMA26 * 100
+		dipScore += 2.0 + (emaStrength * 0.1) // Bonus for stronger crossover
 		triggers = append(triggers, "EMA_BEARISH_CROSSOVER")
 	}
 
-	// Volume spike with price drop
+	// Volume spike with price drop (weight: 1.0 - confirmation)
 	if indicators.VolumeSpike && indicators.PriceDropPct4h < -2 {
+		dipScore += 1.0
 		triggers = append(triggers, "VOLUME_SPIKE_WITH_DROP")
 	}
 
-	// Strong bearish momentum
-	if indicators.ADX > 20 && indicators.MACD < indicators.SignalLine {
+	// Strong bearish momentum (weight: 1.5 - trend strength)
+	if indicators.ADX > 25 && indicators.MACD < indicators.SignalLine {
+		dipScore += 1.5
 		triggers = append(triggers, "STRONG_BEARISH_MOMENTUM")
 	}
 
-	return len(triggers) > 0, triggers
+	// Price below EMA200 with momentum (weight: 1.0 - long-term trend)
+	if indicators.CurrentPrice < indicators.EMA200 && indicators.RSI < 40 {
+		ema200Strength := (indicators.EMA200 - indicators.CurrentPrice) / indicators.EMA200 * 100
+		dipScore += 1.0 + (ema200Strength * 0.05)
+		triggers = append(triggers, "BELOW_EMA200_WITH_MOMENTUM")
+	}
+
+	// Require a minimum weighted score for dip detection
+	if dipScore >= 6.0 { // High confidence dip
+		return true, triggers
+	}
+
+	return false, nil
 }
 
 // calculateTriggers calculates the relevant triggers for the current trend
@@ -525,52 +576,159 @@ func (c *CoinbaseClient) calculateTriggers(indicators TechnicalIndicators, trend
 	return triggers
 }
 
-// determineTrendState determines the current trend state based on technical indicators
+// determineTrendState determines the current trend state based on weighted technical indicators
 func (c *CoinbaseClient) determineTrendState(indicators TechnicalIndicators) string {
-	// Count bearish and bullish signals
-	bearishCount := 0
-	bullishCount := 0
+	// Calculate weighted scores for bearish and bullish signals
+	bearishScore := c.calculateBearishScore(indicators)
+	bullishScore := c.calculateBullishScore(indicators)
 
-	// Bearish signals (more sensitive thresholds)
-	if indicators.MACD < indicators.SignalLine && indicators.MACD < -0.05 { // Reduced threshold
-		bearishCount++
-	}
-	if indicators.EMA12 < indicators.EMA26 {
-		bearishCount++
-	}
-	if indicators.RSI < 35 { // Reduced from 40 to 35
-		bearishCount++
-	}
-	if indicators.PriceDropPct4h < -3 { // Reduced from -5 to -3
-		bearishCount++
-	}
-	if indicators.CurrentPrice < indicators.EMA200 && indicators.RSI < 40 { // Reduced RSI threshold
-		bearishCount++
-	}
-
-	// Bullish signals (opposite conditions)
-	if indicators.MACD > indicators.SignalLine && indicators.MACD > 0.05 {
-		bullishCount++
-	}
-	if indicators.EMA12 > indicators.EMA26 {
-		bullishCount++
-	}
-	if indicators.RSI > 65 { // Reduced from 60 to 65 for more precision
-		bullishCount++
-	}
-	if indicators.PriceDropPct4h > 3 { // Reduced from 5 to 3
-		bullishCount++
-	}
-	if indicators.CurrentPrice > indicators.EMA200 && indicators.RSI > 60 { // Increased RSI threshold
-		bullishCount++
-	}
-
-	// Determine trend based on signal strength (reduced requirements)
-	if bearishCount >= 2 { // Reduced from 3 to 2
+	// Determine trend based on weighted scores
+	// Higher threshold for trend change to avoid false signals
+	if bearishScore >= 7.0 { // High confidence bearish
 		return "bearish"
-	} else if bullishCount >= 2 { // Reduced from 3 to 2
+	} else if bullishScore >= 7.0 { // High confidence bullish
 		return "bullish"
 	} else {
 		return "neutral"
 	}
+}
+
+// calculateBearishScore calculates a weighted score for bearish signals
+func (c *CoinbaseClient) calculateBearishScore(indicators TechnicalIndicators) float64 {
+	score := 0.0
+
+	// MACD bearish crossover (weight: 2.0 - very reliable)
+	if indicators.MACD < indicators.SignalLine {
+		macdStrength := math.Abs(indicators.MACD - indicators.SignalLine)
+		if indicators.MACD < -0.1 {
+			score += 2.0 + (macdStrength * 10) // Bonus for strong bearish MACD
+		} else {
+			score += 1.5
+		}
+	}
+
+	// EMA bearish crossover (weight: 2.0 - very reliable)
+	if indicators.EMA12 < indicators.EMA26 {
+		emaStrength := (indicators.EMA26 - indicators.EMA12) / indicators.EMA26 * 100
+		score += 2.0 + (emaStrength * 0.1) // Bonus for stronger crossover
+	}
+
+	// RSI oversold conditions (weight: 1.5 - momentum indicator)
+	if indicators.RSI < 40 {
+		if indicators.RSI < 30 {
+			score += 2.0 // Strong oversold
+		} else {
+			score += 1.5 // Moderate oversold
+		}
+	} else if indicators.RSI < 45 {
+		score += 0.5 // Slight bearish momentum
+	}
+
+	// Price drop percentage (weight: 1.5 - direct price action)
+	if indicators.PriceDropPct4h < 0 {
+		dropStrength := math.Abs(indicators.PriceDropPct4h)
+		if dropStrength > 5 {
+			score += 2.0 // Strong drop
+		} else if dropStrength > 3 {
+			score += 1.5 // Moderate drop
+		} else if dropStrength > 1 {
+			score += 0.5 // Slight drop
+		}
+	}
+
+	// Price vs EMA200 (weight: 1.0 - long-term trend)
+	if indicators.CurrentPrice < indicators.EMA200 {
+		ema200Strength := (indicators.EMA200 - indicators.CurrentPrice) / indicators.EMA200 * 100
+		if indicators.RSI < 40 {
+			score += 1.5 + (ema200Strength * 0.1) // Bonus for RSI confirmation
+		} else {
+			score += 1.0 + (ema200Strength * 0.05)
+		}
+	}
+
+	// ADX trend strength (weight: 1.0 - trend confirmation)
+	if indicators.ADX > 25 {
+		if indicators.MACD < indicators.SignalLine {
+			score += 1.5 // Strong trend with bearish momentum
+		} else {
+			score += 0.5 // Strong trend but no bearish momentum
+		}
+	}
+
+	// Volume spike confirmation (weight: 0.5 - volume confirmation)
+	if indicators.VolumeSpike && indicators.PriceDropPct4h < -2 {
+		score += 0.5
+	}
+
+	return score
+}
+
+// calculateBullishScore calculates a weighted score for bullish signals
+func (c *CoinbaseClient) calculateBullishScore(indicators TechnicalIndicators) float64 {
+	score := 0.0
+
+	// MACD bullish crossover (weight: 2.0 - very reliable)
+	if indicators.MACD > indicators.SignalLine {
+		macdStrength := math.Abs(indicators.MACD - indicators.SignalLine)
+		if indicators.MACD > 0.1 {
+			score += 2.0 + (macdStrength * 10) // Bonus for strong bullish MACD
+		} else {
+			score += 1.5
+		}
+	}
+
+	// EMA bullish crossover (weight: 2.0 - very reliable)
+	if indicators.EMA12 > indicators.EMA26 {
+		emaStrength := (indicators.EMA12 - indicators.EMA26) / indicators.EMA26 * 100
+		score += 2.0 + (emaStrength * 0.1) // Bonus for stronger crossover
+	}
+
+	// RSI overbought conditions (weight: 1.5 - momentum indicator)
+	if indicators.RSI > 60 {
+		if indicators.RSI > 70 {
+			score += 2.0 // Strong overbought
+		} else {
+			score += 1.5 // Moderate overbought
+		}
+	} else if indicators.RSI > 55 {
+		score += 0.5 // Slight bullish momentum
+	}
+
+	// Price increase percentage (weight: 1.5 - direct price action)
+	if indicators.PriceDropPct4h > 0 {
+		gainStrength := indicators.PriceDropPct4h
+		if gainStrength > 5 {
+			score += 2.0 // Strong gain
+		} else if gainStrength > 3 {
+			score += 1.5 // Moderate gain
+		} else if gainStrength > 1 {
+			score += 0.5 // Slight gain
+		}
+	}
+
+	// Price vs EMA200 (weight: 1.0 - long-term trend)
+	if indicators.CurrentPrice > indicators.EMA200 {
+		ema200Strength := (indicators.CurrentPrice - indicators.EMA200) / indicators.EMA200 * 100
+		if indicators.RSI > 60 {
+			score += 1.5 + (ema200Strength * 0.1) // Bonus for RSI confirmation
+		} else {
+			score += 1.0 + (ema200Strength * 0.05)
+		}
+	}
+
+	// ADX trend strength (weight: 1.0 - trend confirmation)
+	if indicators.ADX > 25 {
+		if indicators.MACD > indicators.SignalLine {
+			score += 1.5 // Strong trend with bullish momentum
+		} else {
+			score += 0.5 // Strong trend but no bullish momentum
+		}
+	}
+
+	// Volume spike confirmation (weight: 0.5 - volume confirmation)
+	if indicators.VolumeSpike && indicators.PriceDropPct4h > 2 {
+		score += 0.5
+	}
+
+	return score
 }
